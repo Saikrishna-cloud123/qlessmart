@@ -442,6 +442,7 @@ export type Database = {
         Row: {
           branch_id: string
           cart_hash: string | null
+          config_snapshot: Json | null
           created_at: string
           id: string
           mart_id: string
@@ -457,6 +458,7 @@ export type Database = {
         Insert: {
           branch_id: string
           cart_hash?: string | null
+          config_snapshot?: Json | null
           created_at?: string
           id?: string
           mart_id: string
@@ -472,6 +474,7 @@ export type Database = {
         Update: {
           branch_id?: string
           cart_hash?: string | null
+          config_snapshot?: Json | null
           created_at?: string
           id?: string
           mart_id?: string
