@@ -5,7 +5,7 @@ import {
   CheckCircle2, XCircle, CreditCard, Receipt, Clock,
   ScanBarcode, Plus, Minus, User, Banknote, QrCode, Smartphone,
   Settings, Save, Mail, LogOut, Camera, BarChart3, LayoutDashboard,
-  TrendingUp, IndianRupee, FileText, Activity,
+  TrendingUp, IndianRupee, FileText, Activity, Store, MapPin, Video, VideoOff,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
