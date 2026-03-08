@@ -28,6 +28,7 @@ export interface ShoppingSession {
   verified_by: string | null;
   verified_at: string | null;
   created_at: string;
+  config_snapshot: any;
 }
 
 export function useSession() {
@@ -37,8 +38,12 @@ export function useSession() {
   const [loading, setLoading] = useState(false);
   const [storeConfig, setStoreConfig] = useState<StoreConfig>(DEFAULT_STORE_CONFIG);
 
-  // Load store config when session is created/loaded
-  const loadStoreConfig = useCallback(async (martId: string) => {
+  // Load store config — prefer session snapshot, fallback to mart config
+  const loadStoreConfig = useCallback(async (martId: string, snapshot?: any) => {
+    if (snapshot && typeof snapshot === 'object') {
+      setStoreConfig({ ...DEFAULT_STORE_CONFIG, ...snapshot });
+      return;
+    }
     const { data } = await supabase
       .from('marts')
       .select('config')
@@ -63,7 +68,7 @@ export function useSession() {
 
     if (data) {
       setSession(data as ShoppingSession);
-      await loadStoreConfig(data.mart_id);
+      await loadStoreConfig(data.mart_id, (data as any).config_snapshot);
       const { data: cartItems } = await supabase
         .from('cart_items')
         .select('*')
@@ -88,7 +93,6 @@ export function useSession() {
     const remaining = expiresAt - now;
 
     if (remaining <= 0) {
-      // Already expired
       toast.error('Your cart has expired due to inactivity.');
       supabase.from('sessions').update({ state: 'CLOSED' as any }).eq('id', session.id).eq('state', 'ACTIVE' as any)
         .then(() => { setSession(null); setItems([]); });
@@ -104,11 +108,11 @@ export function useSession() {
     return () => clearTimeout(timer);
   }, [session?.id, session?.state, session?.created_at, storeConfig.cart_timeout_minutes]);
 
-  // Subscribe to realtime session updates
+  // Phase 4: Realtime session state subscription
   useEffect(() => {
     if (!session) return;
     const channel = supabase
-      .channel(`session-${session.id}`)
+      .channel(`session-rt-${session.id}`)
       .on('postgres_changes', {
         event: 'UPDATE',
         schema: 'public',
@@ -122,12 +126,47 @@ export function useSession() {
     return () => { supabase.removeChannel(channel); };
   }, [session?.id]);
 
+  // Phase 4: Realtime cart items subscription
+  useEffect(() => {
+    if (!session) return;
+    const channel = supabase
+      .channel(`cart-items-rt-${session.id}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'cart_items',
+        filter: `session_id=eq.${session.id}`,
+      }, async () => {
+        // Refetch all items on any change
+        const { data } = await supabase
+          .from('cart_items')
+          .select('*')
+          .eq('session_id', session.id)
+          .order('added_at', { ascending: true });
+        if (data) setItems(data as CartItem[]);
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [session?.id]);
+
+  // Phase 5: Create session with config snapshot
   const createSession = useCallback(async (martId: string, branchId: string) => {
     if (!user) return null;
     setLoading(true);
     try {
-      // Load config for this mart
-      await loadStoreConfig(martId);
+      // Load and snapshot config
+      const { data: martData } = await supabase
+        .from('marts')
+        .select('config')
+        .eq('id', martId)
+        .single();
+      
+      const configSnapshot = martData?.config && typeof martData.config === 'object'
+        ? { ...DEFAULT_STORE_CONFIG, ...(martData.config as any) }
+        : DEFAULT_STORE_CONFIG;
+      
+      setStoreConfig(configSnapshot);
 
       const { data, error } = await supabase
         .from('sessions')
@@ -136,13 +175,14 @@ export function useSession() {
           mart_id: martId,
           branch_id: branchId,
           session_code: 'TEMP',
+          config_snapshot: JSON.parse(JSON.stringify(configSnapshot)) as any,
         })
         .select()
         .single();
 
       if (error) throw error;
 
-      // Create cart record in carts table
+      // Create cart record
       await supabase.from('carts').insert({ session_id: data.id });
 
       setSession(data as ShoppingSession);
@@ -154,12 +194,11 @@ export function useSession() {
     } finally {
       setLoading(false);
     }
-  }, [user, loadStoreConfig]);
+  }, [user]);
 
   const lookupAndAddItem = useCallback(async (barcode: string) => {
     if (!session) return false;
 
-    // Enforce max_items_per_cart
     if (items.length >= storeConfig.max_items_per_cart) {
       toast.error(`Cart limit reached (max ${storeConfig.max_items_per_cart} items)`);
       return false;
@@ -167,7 +206,6 @@ export function useSession() {
 
     setLoading(true);
     try {
-      // Check if already in cart
       const existing = items.find(i => i.barcode === barcode);
       if (existing) {
         const { error } = await supabase
@@ -180,7 +218,6 @@ export function useSession() {
         return true;
       }
 
-      // Lookup via edge function
       const { data, error } = await supabase.functions.invoke('inventory-lookup', {
         body: { barcode, branch_id: session.branch_id },
       });
@@ -260,7 +297,6 @@ export function useSession() {
   const lockCart = useCallback(async () => {
     if (!session || items.length === 0) return;
 
-    // Generate SHA256 cart hash
     const hashData = items.map(i => `${i.barcode}:${i.quantity}:${i.price}`).sort().join('|');
     const encoder = new TextEncoder();
     const data = encoder.encode(hashData);
@@ -268,13 +304,11 @@ export function useSession() {
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     const cartHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 16).toUpperCase();
 
-    // Update carts table
     await supabase
       .from('carts')
       .update({ cart_hash: cartHash, locked_at: new Date().toISOString() })
       .eq('session_id', session.id);
 
-    // Update session state
     const { error } = await supabase
       .from('sessions')
       .update({ state: 'LOCKED' as any, cart_hash: cartHash })
