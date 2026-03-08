@@ -70,6 +70,11 @@ const AdminDashboard = () => {
   const [editingProduct, setEditingProduct] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<Product>>({});
 
+  // Profile settings
+  const [profileName, setProfileName] = useState(authProfile?.display_name || '');
+  const [profileAvatar, setProfileAvatar] = useState(authProfile?.avatar_url || '');
+  const [savingProfile, setSavingProfile] = useState(false);
+
   const fetchMart = useCallback(async () => {
     if (!user) return;
     const { data } = await supabase.from('marts').select('*').eq('owner_id', user.id).limit(1).single();
