@@ -62,6 +62,11 @@ const CustomerScan = () => {
       if (session.state === 'ACTIVE') setStep('scan');
       else if (session.state === 'LOCKED') setStep('locked');
       else if (['VERIFIED', 'PAID', 'CLOSED'].includes(session.state)) setStep('done');
+      // Load mart name for active session
+      if (!martName) {
+        supabase.from('marts').select('name').eq('id', session.mart_id).single()
+          .then(({ data }) => { if (data) setMartName(data.name); });
+      }
     }
   }, [session]);
 
