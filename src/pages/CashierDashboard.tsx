@@ -386,9 +386,11 @@ const CashierDashboard = () => {
             </Button>
           )}
           {selectedSession.state === 'PAID' && (
-            <Button className="w-full py-6 text-base" variant="outline" onClick={closeSession}>
-              <Receipt className="mr-2 h-5 w-5" /> Close & Generate Invoice
-            </Button>
+            <div className="rounded-xl border-2 border-primary/20 bg-primary/5 p-4 text-center">
+              <CheckCircle2 className="mx-auto mb-2 h-8 w-8 text-primary" />
+              <p className="text-sm font-medium text-foreground">Payment complete & invoice generated</p>
+              <p className="text-xs text-muted-foreground">Customer can show receipt QR at exit</p>
+            </div>
           )}
         </div>
       </div>

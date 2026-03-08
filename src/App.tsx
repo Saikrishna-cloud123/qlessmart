@@ -43,6 +43,16 @@ const App = () => (
                 <AdminDashboard />
               </ProtectedRoute>
             } />
+            <Route path="/bills" element={
+              <ProtectedRoute>
+                <MyBills />
+              </ProtectedRoute>
+            } />
+            <Route path="/exit-scan" element={
+              <ProtectedRoute requiredRole="cashier">
+                <ExitScan />
+              </ProtectedRoute>
+            } />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </AuthProvider>
