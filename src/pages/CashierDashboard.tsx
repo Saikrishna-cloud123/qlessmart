@@ -29,6 +29,7 @@ const PAYMENT_LABELS: Record<string, { label: string; icon: any }> = {
   card: { label: 'Card', icon: CreditCard },
   upi_counter: { label: 'UPI Counter', icon: QrCode },
   upi_app: { label: 'UPI App', icon: Smartphone },
+  razorpay: { label: 'Online', icon: CreditCard },
 };
 
 interface SessionRow {
@@ -61,7 +62,6 @@ const CashierDashboard = () => {
   const [profileAvatar, setProfileAvatar] = useState(profile?.avatar_url || '');
   const [savingProfile, setSavingProfile] = useState(false);
 
-  // Get employee's mart
   const [employeeMartId, setEmployeeMartId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -72,7 +72,6 @@ const CashierDashboard = () => {
       });
   }, [user]);
 
-  // Fetch sessions for this mart
   const fetchSessions = useCallback(async () => {
     if (!employeeMartId) return;
     const { data } = await supabase
@@ -86,7 +85,6 @@ const CashierDashboard = () => {
 
   useEffect(() => { fetchSessions(); }, [fetchSessions]);
 
-  // Realtime updates
   useEffect(() => {
     if (!employeeMartId) return;
     const channel = supabase
@@ -99,12 +97,10 @@ const CashierDashboard = () => {
     return () => { supabase.removeChannel(channel); };
   }, [employeeMartId, fetchSessions]);
 
-  // Load session items & customer name
   const loadSessionDetail = useCallback(async (sess: SessionRow) => {
     setSelectedSession(sess);
     const { data: items } = await supabase.from('cart_items').select('*').eq('session_id', sess.id);
     setSessionItems((items || []) as CartItem[]);
-    // Get customer display_name
     const { data: prof } = await supabase.from('profiles').select('display_name').eq('id', sess.user_id).single();
     setCustomerName(prof?.display_name || 'Customer');
   }, []);
@@ -112,7 +108,6 @@ const CashierDashboard = () => {
   const handleScanQR = async () => {
     const input = scanInput.trim();
     if (!input) return;
-    // Try by session ID or session_code
     const { data } = await supabase
       .from('sessions')
       .select('*')
@@ -129,7 +124,6 @@ const CashierDashboard = () => {
     }
   };
 
-  // Cashier actions
   const verifyCart = async () => {
     if (!selectedSession || !user) return;
     const { error } = await supabase
@@ -161,7 +155,7 @@ const CashierDashboard = () => {
       status: 'completed',
       paid_at: new Date().toISOString(),
     });
-    // Generate invoice automatically
+    // Generate invoice
     await supabase.from('invoices').insert({
       session_id: selectedSession.id,
       mart_id: selectedSession.mart_id,
@@ -174,6 +168,16 @@ const CashierDashboard = () => {
       payment_method: (selectedSession.payment_method || 'cash') as any,
     });
     await supabase.from('sessions').update({ state: 'PAID' as any }).eq('id', selectedSession.id);
+
+    // Deliver invoice to mart API
+    try {
+      await supabase.functions.invoke('deliver-invoice', {
+        body: { session_id: selectedSession.id },
+      });
+    } catch (e) {
+      console.log('Invoice delivery skipped:', e);
+    }
+
     // Audit log
     if (user) {
       await supabase.from('audit_logs').insert({
@@ -188,7 +192,6 @@ const CashierDashboard = () => {
     fetchSessions();
   };
 
-  // Cashier can modify items during LOCKED state
   const updateItemQty = async (itemId: string, qty: number) => {
     if (qty <= 0) {
       await supabase.from('cart_items').delete().eq('id', itemId);
@@ -197,7 +200,6 @@ const CashierDashboard = () => {
       await supabase.from('cart_items').update({ quantity: qty }).eq('id', itemId);
       setSessionItems(prev => prev.map(i => i.id === itemId ? { ...i, quantity: qty } : i));
     }
-    // Recalc total
     const newTotal = sessionItems
       .map(i => i.id === itemId ? (qty <= 0 ? 0 : i.price * qty) : i.price * i.quantity)
       .reduce((a, b) => a + b, 0);
@@ -251,7 +253,7 @@ const CashierDashboard = () => {
     );
   }
 
-  // Session detail
+  // Session detail view
   if (selectedSession) {
     const payInfo = PAYMENT_LABELS[selectedSession.payment_method || 'cash'];
     return (
@@ -273,7 +275,7 @@ const CashierDashboard = () => {
           </div>
         </header>
         <div className="mx-auto max-w-2xl p-6">
-          {/* Customer info */}
+          {/* Customer info — display_name only, no email */}
           <div className="mb-4 flex items-center gap-3 rounded-xl border border-border bg-card p-3">
             <User className="h-5 w-5 text-primary" />
             <div>
@@ -287,7 +289,7 @@ const CashierDashboard = () => {
             <div className="mb-4 flex items-center gap-2 rounded-xl border border-border bg-card p-3">
               <Shield className="h-5 w-5 text-primary" />
               <div>
-                <p className="text-xs text-muted-foreground">Cart Fingerprint</p>
+                <p className="text-xs text-muted-foreground">SHA256 Cart Fingerprint</p>
                 <p className="font-mono text-sm font-bold text-foreground">{selectedSession.cart_hash}</p>
               </div>
             </div>
@@ -337,11 +339,9 @@ const CashierDashboard = () => {
                 </div>
                 <div className="flex items-center gap-1">
                   {selectedSession.state === 'LOCKED' && (
-                    <>
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => updateItemQty(item.id, item.quantity - 1)}>
-                        <Minus className="h-3 w-3" />
-                      </Button>
-                    </>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => updateItemQty(item.id, item.quantity - 1)}>
+                      <Minus className="h-3 w-3" />
+                    </Button>
                   )}
                   <span className="w-6 text-center text-sm font-bold text-foreground">{item.quantity}</span>
                   {selectedSession.state === 'LOCKED' && (
@@ -355,7 +355,7 @@ const CashierDashboard = () => {
             ))}
           </div>
 
-          {/* Add item (cashier) */}
+          {/* Add item */}
           {selectedSession.state === 'LOCKED' && (
             <form onSubmit={(e) => { e.preventDefault(); addItemToSession(); }} className="mb-4 flex gap-2">
               <Input
@@ -412,129 +412,112 @@ const CashierDashboard = () => {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold text-foreground">Cashier Dashboard</h1>
-            <p className="text-sm text-muted-foreground">Welcome, {profile?.display_name || 'Cashier'}</p>
+            <p className="text-sm text-muted-foreground">
+              {lockedSessions.length} pending verification{lockedSessions.length !== 1 ? 's' : ''}
+            </p>
           </div>
           <div className="flex items-center gap-2">
             <ThemeToggle />
             <Button variant="ghost" size="sm" onClick={() => setShowSettings(!showSettings)}>
-              <Settings className="mr-1 h-4 w-4" /> {showSettings ? 'Sessions' : 'Settings'}
+              <Settings className="h-4 w-4" />
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => navigate('/')}>
-              <ArrowLeft className="mr-1 h-4 w-4" /> Home
+            <Button variant="ghost" size="sm" onClick={() => signOut()}>
+              <LogOut className="h-4 w-4" />
             </Button>
           </div>
         </div>
       </header>
+
       <div className="mx-auto max-w-2xl p-6">
-        {showSettings ? (
-          <div className="space-y-6">
-            <div className="flex flex-col items-center gap-3">
-              {profileAvatar ? (
-                <img src={profileAvatar} alt="" className="h-20 w-20 rounded-full object-cover border-2 border-border" />
-              ) : (
-                <div className="flex h-20 w-20 items-center justify-center rounded-full bg-primary/10 border-2 border-border">
-                  <User className="h-10 w-10 text-primary" />
-                </div>
-              )}
+        {showSettings && (
+          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="mb-6 rounded-xl border border-border bg-card p-6 space-y-4">
+            <h3 className="font-semibold text-foreground flex items-center gap-2"><User className="h-4 w-4" /> Profile</h3>
+            <div>
+              <Label className="text-sm font-medium text-foreground">Display Name</Label>
+              <Input value={profileName} onChange={e => setProfileName(e.target.value)} placeholder="Your name" className="mt-1" />
             </div>
-            <div className="rounded-xl border border-border bg-card p-6 space-y-4">
-              <h3 className="font-semibold text-foreground flex items-center gap-2"><User className="h-4 w-4" /> My Profile</h3>
-              <div>
-                <Label className="text-sm font-medium text-foreground">Display Name</Label>
-                <Input value={profileName} onChange={e => setProfileName(e.target.value)} placeholder="Your name" className="mt-1" />
+            <div>
+              <Label className="text-sm font-medium text-foreground">Email</Label>
+              <div className="mt-1 flex items-center gap-2 rounded-md border border-input bg-muted px-3 py-2 text-sm text-muted-foreground">
+                <Mail className="h-4 w-4" /> {user?.email}
               </div>
-              <div>
-                <Label className="text-sm font-medium text-foreground">Email</Label>
-                <div className="mt-1 flex items-center gap-2 rounded-md border border-input bg-muted px-3 py-2 text-sm text-muted-foreground">
-                  <Mail className="h-4 w-4" /> {user?.email}
-                </div>
-              </div>
-              <div>
-                <Label className="text-sm font-medium text-foreground">Avatar URL</Label>
-                <Input value={profileAvatar} onChange={e => setProfileAvatar(e.target.value)} placeholder="https://..." className="mt-1" />
-              </div>
-              <Button disabled={savingProfile} className="w-full gradient-primary border-0 text-primary-foreground" onClick={async () => {
-                setSavingProfile(true);
-                const { error } = await updateProfile({ display_name: profileName.trim() || null, avatar_url: profileAvatar.trim() || null });
-                setSavingProfile(false);
-                if (error) toast.error('Failed to save'); else toast.success('Profile updated!');
-              }}>
-                <Save className="mr-2 h-4 w-4" /> Save Profile
-              </Button>
             </div>
-            <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-6">
-              <h3 className="mb-3 font-semibold text-destructive">Account</h3>
-              <Button variant="destructive" size="sm" onClick={() => signOut()}>
-                <LogOut className="mr-2 h-4 w-4" /> Sign Out
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <>
-        <form onSubmit={(e) => { e.preventDefault(); handleScanQR(); }} className="mb-6 flex gap-2">
-          <Input placeholder="Scan or enter session code..." value={scanInput} onChange={(e) => setScanInput(e.target.value)} className="font-mono" />
-          <Button type="submit" className="gradient-primary border-0 text-primary-foreground">
-            <ScanBarcode className="h-5 w-5" />
-          </Button>
-        </form>
-
-        {lockedSessions.length > 0 && (
-          <div className="mb-6">
-            <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
-              <Clock className="h-4 w-4 text-warning" /> Pending Verification ({lockedSessions.length})
-            </h2>
-            <div className="space-y-2">
-              {lockedSessions.map(sess => (
-                <motion.button
-                  key={sess.id}
-                  className="w-full rounded-xl border-2 border-warning/30 bg-warning/5 p-4 text-left hover:bg-warning/10"
-                  onClick={() => loadSessionDetail(sess)}
-                  initial={{ x: -10, opacity: 0 }}
-                  animate={{ x: 0, opacity: 1 }}
-                >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-mono text-sm font-bold text-foreground">{sess.session_code}</p>
-                      <p className="text-xs text-muted-foreground">₹{sess.total_amount.toFixed(2)}</p>
-                    </div>
-                    <ShieldCheck className="h-6 w-6 text-warning" />
-                  </div>
-                </motion.button>
-              ))}
-            </div>
-          </div>
+            <Button disabled={savingProfile} className="w-full gradient-primary border-0 text-primary-foreground" onClick={async () => {
+              setSavingProfile(true);
+              const { error } = await updateProfile({ display_name: profileName.trim() || null, avatar_url: profileAvatar.trim() || null });
+              setSavingProfile(false);
+              if (error) toast.error('Failed to save'); else toast.success('Profile updated!');
+            }}>
+              <Save className="mr-2 h-4 w-4" /> Save
+            </Button>
+          </motion.div>
         )}
 
-        <h2 className="mb-3 text-sm font-semibold text-foreground">All Sessions ({sessions.length})</h2>
+        {/* QR Scanner */}
+        <div className="mb-6 rounded-xl border border-border bg-card p-4">
+          <h3 className="mb-3 flex items-center gap-2 font-semibold text-foreground">
+            <ScanBarcode className="h-5 w-5 text-primary" /> Scan Customer QR
+          </h3>
+          <form onSubmit={(e) => { e.preventDefault(); handleScanQR(); }} className="flex gap-2">
+            <Input
+              placeholder="Scan QR or enter session ID..."
+              value={scanInput}
+              onChange={(e) => setScanInput(e.target.value)}
+              className="font-mono"
+            />
+            <Button type="submit" disabled={!scanInput.trim()} className="gradient-primary border-0 text-primary-foreground">
+              <ScanBarcode className="h-5 w-5" />
+            </Button>
+          </form>
+        </div>
+
+        {/* Sessions list */}
+        <div className="mb-4 flex items-center gap-2">
+          <Clock className="h-5 w-5 text-primary" />
+          <h3 className="font-semibold text-foreground">Pending Sessions</h3>
+          <span className="ml-auto text-sm text-muted-foreground">{sessions.length} total</span>
+        </div>
+
         {sessions.length === 0 ? (
-          <div className="py-16 text-center text-muted-foreground">
-            <ShieldX className="mx-auto mb-3 h-12 w-12 text-muted-foreground/30" />
-            <p>No pending sessions</p>
+          <div className="rounded-xl border border-border bg-card p-12 text-center">
+            <Receipt className="mx-auto mb-3 h-12 w-12 text-muted-foreground/30" />
+            <p className="text-muted-foreground">No sessions waiting for verification</p>
           </div>
         ) : (
-          <div className="space-y-2">
-            <AnimatePresence>
-              {sessions.map(sess => (
+          <div className="space-y-3">
+            {sessions.map((sess, i) => {
+              const payLabel = PAYMENT_LABELS[sess.payment_method || 'cash'];
+              return (
                 <motion.button
                   key={sess.id}
-                  className="w-full rounded-xl border border-border bg-card p-4 text-left hover:bg-muted/50"
+                  className="flex w-full items-center gap-4 rounded-xl border border-border bg-card p-4 text-left hover:bg-muted/50 transition-colors"
                   onClick={() => loadSessionDetail(sess)}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: i * 0.03 }}
+                  whileTap={{ scale: 0.98 }}
                 >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-mono text-sm font-bold text-foreground">{sess.session_code}</p>
-                      <p className="text-xs text-muted-foreground">₹{sess.total_amount.toFixed(2)}</p>
-                    </div>
-                    <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${STATE_COLORS[sess.state]}`}>{sess.state}</span>
+                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+                    {sess.state === 'LOCKED' ? <Shield className="h-5 w-5 text-primary" /> :
+                     sess.state === 'VERIFIED' ? <ShieldCheck className="h-5 w-5 text-primary" /> :
+                     <CheckCircle2 className="h-5 w-5 text-primary" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-mono text-sm font-medium text-foreground">{sess.session_code}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {payLabel?.label} · {new Date(sess.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-medium text-foreground">₹{sess.total_amount.toFixed(2)}</p>
+                    <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-bold ${STATE_COLORS[sess.state]}`}>
+                      {sess.state}
+                    </span>
                   </div>
                 </motion.button>
-              ))}
-            </AnimatePresence>
+              );
+            })}
           </div>
-        )}
-        </>
         )}
       </div>
     </div>

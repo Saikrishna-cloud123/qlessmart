@@ -13,10 +13,11 @@ import { useSession } from '@/hooks/useSession';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import type { PaymentConfig } from '@/lib/storeConfig';
 
 type PaymentMethod = 'cash' | 'card' | 'upi_counter' | 'upi_app' | 'razorpay';
 
-const PAYMENT_OPTIONS: { value: PaymentMethod; label: string; icon: any }[] = [
+const ALL_PAYMENT_OPTIONS: { value: PaymentMethod; label: string; icon: any }[] = [
   { value: 'cash', label: 'Cash', icon: Banknote },
   { value: 'card', label: 'Card', icon: CreditCard },
   { value: 'upi_counter', label: 'UPI at Counter', icon: QrCode },
@@ -31,12 +32,11 @@ const CustomerScan = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const {
-    session, items, loading,
+    session, items, loading, storeConfig,
     createSession, lookupAndAddItem, updateQuantity, removeItem,
     setPaymentMethod, lockCart, endSession,
   } = useSession();
 
-  // Mart/branch selection state
   const [marts, setMarts] = useState<Mart[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [selectedMart, setSelectedMart] = useState<string | null>(null);
@@ -49,23 +49,25 @@ const CustomerScan = () => {
   const inputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLDivElement>(null);
 
-  // If user already has an active session, jump to scan
+  // Filter payment options based on store config
+  const paymentOptions = ALL_PAYMENT_OPTIONS.filter(opt =>
+    storeConfig.payment_config.supported_methods.includes(opt.value)
+  );
+
   useEffect(() => {
     if (session) {
       if (session.state === 'ACTIVE') setStep('scan');
       else if (session.state === 'LOCKED') setStep('locked');
-      else if (session.state === 'VERIFIED' || session.state === 'PAID' || session.state === 'CLOSED') setStep('done');
+      else if (['VERIFIED', 'PAID', 'CLOSED'].includes(session.state)) setStep('done');
     }
   }, [session]);
 
-  // Load marts
   useEffect(() => {
     supabase.from('marts').select('id, name, logo_url').then(({ data }) => {
       if (data) setMarts(data);
     });
   }, []);
 
-  // Load branches when mart selected
   useEffect(() => {
     if (!selectedMart) return;
     supabase.from('branches').select('id, branch_name, is_default')
@@ -73,7 +75,6 @@ const CustomerScan = () => {
       .then(({ data }) => {
         if (data) {
           setBranches(data);
-          // Auto-select default branch if only one
           if (data.length === 1) {
             handleBranchSelect(data[0].id);
           } else {
@@ -83,9 +84,7 @@ const CustomerScan = () => {
       });
   }, [selectedMart]);
 
-  const handleMartSelect = (martId: string) => {
-    setSelectedMart(martId);
-  };
+  const handleMartSelect = (martId: string) => setSelectedMart(martId);
 
   const handleBranchSelect = async (branchId: string) => {
     if (!selectedMart) return;
@@ -117,7 +116,6 @@ const CustomerScan = () => {
       });
       if (error || !data?.order_id) throw new Error(data?.error || 'Failed to create order');
 
-      // Load Razorpay script
       if (!(window as any).Razorpay) {
         await new Promise<void>((resolve, reject) => {
           const script = document.createElement('script');
@@ -136,7 +134,6 @@ const CustomerScan = () => {
         description: `Session ${session.session_code}`,
         order_id: data.order_id,
         handler: async (response: any) => {
-          // Verify payment on server
           const { data: verifyData, error: verifyErr } = await supabase.functions.invoke('verify-razorpay-payment', {
             body: {
               razorpay_order_id: response.razorpay_order_id,
@@ -149,7 +146,6 @@ const CustomerScan = () => {
             toast.error('Payment verification failed');
           } else {
             toast.success('Payment successful!');
-            // Session will be updated via realtime
           }
         },
         prefill: { email: user?.email },
@@ -165,19 +161,28 @@ const CustomerScan = () => {
     }
   };
 
-  // Generate UPI link for mart
+  // Generate UPI link from store config
   useEffect(() => {
     if (!session || session.state !== 'VERIFIED') return;
     if (session.payment_method !== 'upi_app') return;
-    // Fetch mart UPI details
-    supabase.from('marts').select('upi_id, merchant_name').eq('id', session.mart_id).single()
-      .then(({ data }) => {
-        if (data?.upi_id) {
-          const link = `upi://pay?pa=${encodeURIComponent(data.upi_id)}&pn=${encodeURIComponent(data.merchant_name || 'Store')}&am=${session.total_amount}&cu=INR`;
-          setUpiLink(link);
-        }
-      });
-  }, [session?.state, session?.payment_method]);
+    const upiConfig = storeConfig.payment_config.upi;
+    if (upiConfig?.pa) {
+      const link = upiConfig.url_format
+        .replace('{pa}', encodeURIComponent(upiConfig.pa))
+        .replace('{pn}', encodeURIComponent(upiConfig.pn))
+        .replace('{amount}', String(session.total_amount));
+      setUpiLink(link);
+    } else {
+      // Fallback to mart table
+      supabase.from('marts').select('upi_id, merchant_name').eq('id', session.mart_id).single()
+        .then(({ data }) => {
+          if (data?.upi_id) {
+            const link = `upi://pay?pa=${encodeURIComponent(data.upi_id)}&pn=${encodeURIComponent(data.merchant_name || 'Store')}&am=${session.total_amount}&cu=INR`;
+            setUpiLink(link);
+          }
+        });
+    }
+  }, [session?.state, session?.payment_method, storeConfig]);
 
   // Camera scanner
   useEffect(() => {
@@ -301,8 +306,11 @@ const CustomerScan = () => {
             <QRCodeSVG value={session.id} size={200} level="H" />
           </div>
           <p className="mb-1 font-mono text-xs font-bold text-foreground">{session.session_code}</p>
+          <p className="mb-2 text-xs text-muted-foreground">
+            SHA256 Hash: {session.cart_hash}
+          </p>
           <p className="mb-6 text-xs text-muted-foreground">
-            Hash: {session.cart_hash} · {items.length} items · ₹{session.total_amount.toFixed(2)}
+            {items.length} items · ₹{session.total_amount.toFixed(2)}
           </p>
           <Button variant="outline" onClick={() => setStep('scan')}>View Cart</Button>
         </motion.div>
@@ -315,7 +323,6 @@ const CustomerScan = () => {
   if (step === 'done' || (session && ['VERIFIED', 'PAID', 'CLOSED'].includes(session.state))) {
     const state = session?.state || 'CLOSED';
 
-    // For VERIFIED + upi_app or razorpay, show in-app payment
     if (state === 'VERIFIED' && session) {
       return (
         <div className="flex min-h-screen flex-col items-center justify-center bg-background p-6 text-center">
@@ -331,7 +338,6 @@ const CustomerScan = () => {
             </p>
             <p className="font-mono text-2xl font-bold text-primary mb-4">₹{session.total_amount.toFixed(2)}</p>
 
-            {/* Razorpay pay button */}
             {(session.payment_method === 'upi_app' || session.payment_method === 'razorpay') && (
               <Button
                 className="w-full gradient-primary border-0 text-primary-foreground py-5 text-base mb-3"
@@ -346,7 +352,6 @@ const CustomerScan = () => {
               </Button>
             )}
 
-            {/* UPI intent link */}
             {session.payment_method === 'upi_app' && upiLink && (
               <a href={upiLink} className="block text-center text-sm text-primary underline mb-3">
                 Open UPI App
@@ -412,7 +417,7 @@ const CustomerScan = () => {
             <p className="text-xs text-muted-foreground">{totalQty} items</p>
           </div>
           <div className="space-y-3">
-            {PAYMENT_OPTIONS.map(opt => (
+            {paymentOptions.map(opt => (
               <motion.button
                 key={opt.value}
                 className="flex w-full items-center gap-4 rounded-xl border border-border bg-card p-4 text-left hover:bg-muted/50 transition-colors"
@@ -446,9 +451,14 @@ const CustomerScan = () => {
               <p className="text-xs text-muted-foreground font-mono">{session?.session_code}</p>
             </div>
           </div>
-          <div className="flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1">
-            <ShoppingCart className="h-4 w-4 text-primary" />
-            <span className="text-sm font-bold text-primary">{items.length}</span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">
+              {items.length}/{storeConfig.max_items_per_cart}
+            </span>
+            <div className="flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1">
+              <ShoppingCart className="h-4 w-4 text-primary" />
+              <span className="text-sm font-bold text-primary">{items.length}</span>
+            </div>
           </div>
         </div>
       </header>

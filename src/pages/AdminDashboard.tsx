@@ -559,8 +559,11 @@ const AdminDashboard = () => {
                   </div>
                 </div>
                 <div className="rounded-xl border border-border bg-card p-4">
-                  <h3 className="mb-3 font-semibold text-foreground">Configuration JSON</h3>
-                  <textarea className="w-full min-h-[200px] rounded-lg border border-input bg-background p-3 font-mono text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring" value={configJson} onChange={e => setConfigJson(e.target.value)} />
+                  <h3 className="mb-3 font-semibold text-foreground">Store Configuration JSON</h3>
+                  <p className="mb-2 text-xs text-muted-foreground">
+                    Includes product_schema, normalization, inventory_request, invoice_schema, invoice_delivery, payment_config, and security settings.
+                  </p>
+                  <textarea className="w-full min-h-[300px] rounded-lg border border-input bg-background p-3 font-mono text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring" value={configJson} onChange={e => setConfigJson(e.target.value)} />
                 </div>
                 <Button onClick={saveConfig} className="gradient-primary border-0 text-primary-foreground"><Save className="mr-2 h-4 w-4" /> Save Configuration</Button>
               </div>

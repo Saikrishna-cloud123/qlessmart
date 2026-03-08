@@ -14,6 +14,59 @@ function extractField(obj: any, path: (string | number)[]): any {
   return current
 }
 
+function normalizeProduct(
+  rawData: any,
+  schema: Record<string, (string | number)[]>,
+  normalization: { fallback_fields?: Record<string, string[]>; defaults?: Record<string, any> }
+): Record<string, any> | null {
+  const result: Record<string, any> = {}
+  const fields = ['barcode', 'product_id', 'title', 'brand', 'category', 'price', 'images']
+
+  for (const field of fields) {
+    const path = schema[field]
+    let value = path ? extractField(rawData, path) : null
+
+    // Fallback fields
+    if (value == null && normalization.fallback_fields?.[field]) {
+      for (const alt of normalization.fallback_fields[field]) {
+        value = extractField(rawData, [alt])
+        if (value != null) break
+      }
+    }
+
+    // Defaults
+    if (value == null && normalization.defaults && field in normalization.defaults) {
+      value = normalization.defaults[field]
+    }
+
+    result[field] = value
+  }
+
+  if (!result.title) return null
+  return result
+}
+
+async function fetchWithRetry(
+  url: string,
+  options: RequestInit,
+  timeoutMs: number,
+  retries: number
+): Promise<Response | null> {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const resp = await fetch(url, {
+        ...options,
+        signal: AbortSignal.timeout(timeoutMs),
+      })
+      if (resp.ok) return resp
+    } catch (e) {
+      console.log(`Attempt ${attempt + 1} failed:`, e)
+      if (attempt === retries) return null
+    }
+  }
+  return null
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders })
@@ -48,38 +101,75 @@ Deno.serve(async (req) => {
 
     const mart = (branch as any).marts
     const config = mart?.config || {}
-    const schema = config.schema || {}
+    const productSchema = config.product_schema || {
+      barcode: ['barcode'], title: ['title'], brand: ['brand'],
+      category: ['category'], price: ['price'], images: ['images', 0],
+    }
+    const normalization = config.normalization || {
+      fallback_fields: { title: ['name', 'item_name', 'product_name'], category: ['cat', 'group'], price: ['cost', 'amount'] },
+      defaults: { brand: 'Unknown', images: [] },
+    }
+    const inventoryRequest = config.inventory_request || { timeout_ms: 3000, retry_attempts: 2 }
 
-    // Try real inventory API if configured
+    // 1. Try local products table first
+    const { data: localProduct } = await supabase
+      .from('products')
+      .select('*')
+      .eq('branch_id', branch_id)
+      .eq('barcode', barcode)
+      .eq('is_active', true)
+      .single()
+
+    if (localProduct) {
+      return new Response(JSON.stringify({
+        product: {
+          barcode: localProduct.barcode,
+          product_id: localProduct.id,
+          title: localProduct.title,
+          brand: localProduct.brand,
+          category: localProduct.category,
+          price: localProduct.price,
+          image_url: localProduct.image_url,
+        },
+        source: 'products_table',
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
+
+    // 2. Try branch inventory API if configured
     if (branch.inventory_api_url) {
-      try {
-        const apiUrl = branch.inventory_api_url.replace('{barcode}', barcode)
-        const resp = await fetch(apiUrl, {
-          headers: { 'Accept': 'application/json' },
-          signal: AbortSignal.timeout(5000),
-        })
+      const apiUrl = branch.inventory_api_url.replace('{barcode}', barcode)
+      const resp = await fetchWithRetry(
+        apiUrl,
+        { headers: { 'Accept': 'application/json' } },
+        inventoryRequest.timeout_ms,
+        inventoryRequest.retry_attempts
+      )
 
-        if (resp.ok) {
-          const data = await resp.json()
-          // Map fields using mart schema config
-          const product = {
-            barcode,
-            title: extractField(data, schema.title || ['title']) || 'Unknown Product',
-            brand: extractField(data, schema.brand || ['brand']) || null,
-            category: extractField(data, schema.category || ['category']) || null,
-            price: extractField(data, schema.price || ['price']) || 0,
-            image_url: extractField(data, schema.images || ['images', 0]) || null,
-          }
-          return new Response(JSON.stringify({ product, source: 'inventory_api' }), {
+      if (resp) {
+        const data = await resp.json()
+        const normalized = normalizeProduct(data, productSchema, normalization)
+        if (normalized) {
+          return new Response(JSON.stringify({
+            product: {
+              barcode: normalized.barcode || barcode,
+              product_id: normalized.product_id,
+              title: normalized.title,
+              brand: normalized.brand,
+              category: normalized.category,
+              price: normalized.price || 0,
+              image_url: Array.isArray(normalized.images) ? normalized.images[0] : normalized.images,
+            },
+            source: 'inventory_api',
+          }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           })
         }
-      } catch (e) {
-        console.log('Inventory API failed, falling back to mock:', e)
       }
     }
 
-    // Fallback: mock product database
+    // 3. Fallback: mock product database
     const MOCK_PRODUCTS: Record<string, any> = {
       '8901138510022': { title: 'Himalaya Nourishing Body Lotion 100ml', brand: 'Himalaya', category: 'Personal Care', price: 120, image_url: 'https://images.barcodelookup.com/156200/1562004268-1.jpg' },
       '8906006721821': { title: 'Lion Dates (Kimjo)', brand: 'Lion', category: 'Food', price: 85, image_url: null },
@@ -103,7 +193,7 @@ Deno.serve(async (req) => {
       })
     }
 
-    // Try UPC Item DB as last resort
+    // 4. Try UPC Item DB as last resort
     try {
       const resp = await fetch(`https://api.upcitemdb.com/prod/trial/lookup?upc=${barcode}`)
       if (resp.ok) {
