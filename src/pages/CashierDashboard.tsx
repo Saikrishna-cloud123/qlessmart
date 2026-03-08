@@ -156,7 +156,7 @@ const CashierDashboard = () => {
         .from('sessions')
         .select('total_amount, created_at')
         .eq('mart_id', employeeMartId)
-        .eq('state', 'PAID' as any)
+        .in('state', ['PAID', 'CLOSED'] as any)
         .gte('created_at', weekStart)
         .order('created_at', { ascending: true });
 
