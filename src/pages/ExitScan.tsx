@@ -167,9 +167,9 @@ const ExitScan = () => {
     setLoading(false);
   };
 
-  // Camera scanner
+  // Camera scanner - stop when result is showing, restart when cleared
   useEffect(() => {
-    if (scanMode !== 'camera' || !videoRef.current) return;
+    if (scanMode !== 'camera' || !videoRef.current || verifyResult !== null) return;
     let html5QrCode: any;
     const startScanner = async () => {
       const { Html5Qrcode } = await import('html5-qrcode');
@@ -192,7 +192,7 @@ const ExitScan = () => {
     };
     startScanner();
     return () => { if (html5QrCode) { try { html5QrCode.stop(); } catch {} } };
-  }, [scanMode]);
+  }, [scanMode, verifyResult]);
 
   if (!employeeMartId) {
     return (

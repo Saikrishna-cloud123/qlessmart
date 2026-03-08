@@ -44,10 +44,12 @@ const CustomerScan = () => {
 
   const [barcode, setBarcode] = useState('');
   const [scanMode, setScanMode] = useState<'manual' | 'camera'>('manual');
+  const [storeScanMode, setStoreScanMode] = useState<'manual' | 'camera'>('manual');
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [upiLink, setUpiLink] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLDivElement>(null);
+  const storeVideoRef = useRef<HTMLDivElement>(null);
 
   // Filter payment options based on store config
   const paymentOptions = ALL_PAYMENT_OPTIONS.filter(opt =>
