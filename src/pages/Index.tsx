@@ -19,10 +19,32 @@ const Index = () => {
             <img src={ecartLogo} alt="eCart" className="h-9 w-9" />
             <span className="text-xl font-bold text-foreground">eCart</span>
           </div>
-          <div className="flex gap-2">
-            <Button variant="ghost" size="sm" onClick={() => navigate('/cashier')}>
-              Cashier Login
-            </Button>
+          <div className="flex gap-2 items-center">
+            {user ? (
+              <>
+                <span className="text-sm text-muted-foreground hidden sm:inline">
+                  <User className="inline h-4 w-4 mr-1" />
+                  {profile?.display_name || 'User'}
+                </span>
+                {hasRole('cashier') && (
+                  <Button variant="ghost" size="sm" onClick={() => navigate('/cashier')}>
+                    Cashier
+                  </Button>
+                )}
+                {hasRole('admin') && (
+                  <Button variant="ghost" size="sm" onClick={() => navigate('/admin')}>
+                    Admin
+                  </Button>
+                )}
+                <Button variant="ghost" size="sm" onClick={() => signOut()}>
+                  <LogOut className="h-4 w-4 mr-1" /> Sign Out
+                </Button>
+              </>
+            ) : (
+              <Button variant="ghost" size="sm" onClick={() => navigate('/auth')}>
+                <LogIn className="h-4 w-4 mr-1" /> Sign In
+              </Button>
+            )}
           </div>
         </nav>
 
