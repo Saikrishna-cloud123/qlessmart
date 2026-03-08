@@ -344,7 +344,7 @@ const RegisterMart = () => {
               Your store is registered. Head to the admin dashboard to manage branches, employees, and settings.
             </p>
             <div className="flex flex-col gap-3">
-              <Button className="w-full gradient-primary border-0 text-primary-foreground py-5 text-base" onClick={() => navigate('/admin')}>
+              <Button className="w-full gradient-primary border-0 text-primary-foreground py-5 text-base" onClick={() => navigate('/admin/dashboard')}>
                 Go to Admin Dashboard
               </Button>
               <Button variant="outline" onClick={() => navigate('/')}>

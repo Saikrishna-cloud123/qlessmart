@@ -40,12 +40,12 @@ const App = () => (
                 <CustomerScan />
               </ProtectedRoute>
             } />
-            <Route path="/cashier" element={
+            <Route path="/cashier/dashboard" element={
               <ProtectedRoute requiredRole="cashier">
                 <CashierDashboard />
               </ProtectedRoute>
             } />
-            <Route path="/admin" element={
+            <Route path="/admin/dashboard" element={
               <ProtectedRoute requiredRole="admin">
                 <AdminDashboard />
               </ProtectedRoute>
@@ -56,13 +56,24 @@ const App = () => (
               </ProtectedRoute>
             } />
             <Route path="/exit-scan" element={
-              <ProtectedRoute requiredRole="cashier">
+              <ProtectedRoute requiredRole="exit_guard">
                 <ExitScan />
               </ProtectedRoute>
             } />
             <Route path="/register-mart" element={
               <ProtectedRoute>
                 <RegisterMart />
+              </ProtectedRoute>
+            } />
+            {/* Legacy route redirects */}
+            <Route path="/admin" element={
+              <ProtectedRoute requiredRole="admin">
+                <AdminDashboard />
+              </ProtectedRoute>
+            } />
+            <Route path="/cashier" element={
+              <ProtectedRoute requiredRole="cashier">
+                <CashierDashboard />
               </ProtectedRoute>
             } />
             <Route path="*" element={<NotFound />} />

@@ -29,9 +29,11 @@ const Auth = () => {
     if (from) {
       navigate(from, { replace: true });
     } else if (roles.includes('admin')) {
-      navigate('/admin', { replace: true });
+      navigate('/admin/dashboard', { replace: true });
     } else if (roles.includes('cashier')) {
-      navigate('/cashier', { replace: true });
+      navigate('/cashier/dashboard', { replace: true });
+    } else if (roles.includes('exit_guard')) {
+      navigate('/exit-scan', { replace: true });
     } else {
       navigate('/dashboard', { replace: true });
     }
