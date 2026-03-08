@@ -185,7 +185,7 @@ const CashierDashboard = () => {
       .from('sessions')
       .select('*')
       .or(`id.eq.${input},session_code.eq.${input}`)
-      .single();
+      .maybeSingle();
 
     if (data && data.state === 'LOCKED') {
       loadSessionDetail(data as SessionRow);
