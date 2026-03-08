@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import {
   Shield, ShieldCheck, ShieldX, ArrowLeft, ScanBarcode,
   Keyboard, Camera, CheckCircle2, XCircle, Package, User,
-  AlertTriangle,
+  AlertTriangle, Store, MapPin, LogOut,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -38,14 +38,26 @@ const ExitScan = () => {
 
   const [employeeBranchId, setEmployeeBranchId] = useState<string | null>(null);
   const [employeeMartId, setEmployeeMartId] = useState<string | null>(null);
+  const [martName, setMartName] = useState('');
+  const [branchName, setBranchName] = useState('');
+  const [branchAddress, setBranchAddress] = useState('');
 
   useEffect(() => {
     if (!user) return;
     supabase.from('employees').select('mart_id, branch_id').eq('user_id', user.id).eq('is_active', true).limit(1).single()
-      .then(({ data }) => {
+      .then(async ({ data }) => {
         if (data) {
           setEmployeeMartId(data.mart_id);
           setEmployeeBranchId(data.branch_id);
+          const { data: mart } = await supabase.from('marts').select('name').eq('id', data.mart_id).maybeSingle();
+          if (mart) setMartName(mart.name);
+          if (data.branch_id) {
+            const { data: branch } = await supabase.from('branches').select('branch_name, address').eq('id', data.branch_id).maybeSingle();
+            if (branch) {
+              setBranchName(branch.branch_name);
+              setBranchAddress(branch.address || '');
+            }
+          }
         }
       });
   }, [user]);
@@ -207,7 +219,18 @@ const ExitScan = () => {
             </Button>
             <div>
               <h1 className="text-xl font-bold text-foreground">Exit Validation</h1>
-              <p className="text-sm text-muted-foreground">Scan receipt QR & verify cart hash</p>
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                {martName && (
+                  <span className="flex items-center gap-1">
+                    <Store className="h-3.5 w-3.5" /> {martName}
+                  </span>
+                )}
+                {branchName && (
+                  <span className="flex items-center gap-1">
+                    <MapPin className="h-3.5 w-3.5" /> {branchName}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
           <Shield className="h-6 w-6 text-primary" />
