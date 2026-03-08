@@ -48,6 +48,9 @@ Deno.serve(async (req) => {
     // Now add the employee role
     await supabaseAdmin.from("user_roles").insert({ user_id: userId, role });
 
+    // Remove auto-assigned 'customer' role (from handle_new_user trigger)
+    await supabaseAdmin.from("user_roles").delete().eq("user_id", userId).eq("role", "customer");
+
     // Add employee record
     await supabaseAdmin.from("employees").insert({
       user_id: userId,
