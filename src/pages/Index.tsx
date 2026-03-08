@@ -6,6 +6,7 @@ import { useAuth } from '@/hooks/useAuth';
 import ecartLogo from '@/assets/ecart-logo.png';
 
 const Index = () => {
+  const { user, profile, signOut, hasRole } = useAuth();
   const navigate = useNavigate();
 
   return (
