@@ -138,6 +138,18 @@ const CustomerScan = () => {
 
   const handleProceedToPayment = () => setStep('payment');
 
+  const cancelSession = async () => {
+    if (!session) return;
+    if (!confirm('Are you sure you want to cancel this cart? All items will be removed.')) return;
+    await supabase.from('cart_items').delete().eq('session_id', session.id);
+    await supabase.from('carts').delete().eq('session_id', session.id);
+    await supabase.from('sessions').update({ state: 'CLOSED' as any }).eq('id', session.id);
+    endSession();
+    setMartName('');
+    setStep('select-mart');
+    toast.success('Cart cancelled');
+  };
+
   const handleLockCart = async (method: PaymentMethod) => {
     await setPaymentMethod(method);
     await lockCart();
