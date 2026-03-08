@@ -134,7 +134,7 @@ const RegisterMart = () => {
     };
 
     const { error } = await supabase.from('marts').update({
-      config,
+      config: JSON.parse(JSON.stringify(config)),
       upi_id: upiId.trim() || null,
       merchant_name: merchantName.trim() || null,
       customer_pay_from_app: payFromApp,
