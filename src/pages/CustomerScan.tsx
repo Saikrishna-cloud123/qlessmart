@@ -106,6 +106,78 @@ const CustomerScan = () => {
     setStep('locked');
   };
 
+  // Razorpay payment
+  const initiateRazorpay = async () => {
+    if (!session) return;
+    setPaymentLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('create-razorpay-order', {
+        body: { session_id: session.id, amount: session.total_amount },
+      });
+      if (error || !data?.order_id) throw new Error(data?.error || 'Failed to create order');
+
+      // Load Razorpay script
+      if (!(window as any).Razorpay) {
+        await new Promise<void>((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+          script.onload = () => resolve();
+          script.onerror = () => reject(new Error('Failed to load Razorpay'));
+          document.head.appendChild(script);
+        });
+      }
+
+      const options = {
+        key: data.key_id,
+        amount: data.amount,
+        currency: data.currency,
+        name: 'eCart',
+        description: `Session ${session.session_code}`,
+        order_id: data.order_id,
+        handler: async (response: any) => {
+          // Verify payment on server
+          const { data: verifyData, error: verifyErr } = await supabase.functions.invoke('verify-razorpay-payment', {
+            body: {
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature,
+              session_id: session.id,
+            },
+          });
+          if (verifyErr || !verifyData?.success) {
+            toast.error('Payment verification failed');
+          } else {
+            toast.success('Payment successful!');
+            // Session will be updated via realtime
+          }
+        },
+        prefill: { email: user?.email },
+        theme: { color: '#10b981' },
+      };
+
+      const rzp = new (window as any).Razorpay(options);
+      rzp.open();
+    } catch (e: any) {
+      toast.error(e.message || 'Payment failed');
+    } finally {
+      setPaymentLoading(false);
+    }
+  };
+
+  // Generate UPI link for mart
+  useEffect(() => {
+    if (!session || session.state !== 'VERIFIED') return;
+    if (session.payment_method !== 'upi_app') return;
+    // Fetch mart UPI details
+    supabase.from('marts').select('upi_id, merchant_name').eq('id', session.mart_id).single()
+      .then(({ data }) => {
+        if (data?.upi_id) {
+          const link = `upi://pay?pa=${encodeURIComponent(data.upi_id)}&pn=${encodeURIComponent(data.merchant_name || 'Store')}&am=${session.total_amount}&cu=INR`;
+          setUpiLink(link);
+        }
+      });
+  }, [session?.state, session?.payment_method]);
+
   // Camera scanner
   useEffect(() => {
     if (scanMode !== 'camera' || !videoRef.current || step !== 'scan') return;
