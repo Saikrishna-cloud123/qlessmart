@@ -11,6 +11,8 @@ import ResetPassword from "./pages/ResetPassword";
 import CustomerScan from "./pages/CustomerScan";
 import CashierDashboard from "./pages/CashierDashboard";
 import AdminDashboard from "./pages/AdminDashboard";
+import MyBills from "./pages/MyBills";
+import ExitScan from "./pages/ExitScan";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -39,6 +41,16 @@ const App = () => (
             <Route path="/admin" element={
               <ProtectedRoute requiredRole="admin">
                 <AdminDashboard />
+              </ProtectedRoute>
+            } />
+            <Route path="/bills" element={
+              <ProtectedRoute>
+                <MyBills />
+              </ProtectedRoute>
+            } />
+            <Route path="/exit-scan" element={
+              <ProtectedRoute requiredRole="cashier">
+                <ExitScan />
               </ProtectedRoute>
             } />
             <Route path="*" element={<NotFound />} />

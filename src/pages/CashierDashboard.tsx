@@ -154,15 +154,7 @@ const CashierDashboard = () => {
       status: 'completed',
       paid_at: new Date().toISOString(),
     });
-    await supabase.from('sessions').update({ state: 'PAID' as any }).eq('id', selectedSession.id);
-    toast.success('Payment recorded!');
-    setSelectedSession(prev => prev ? { ...prev, state: 'PAID' } : null);
-    fetchSessions();
-  };
-
-  const closeSession = async () => {
-    if (!selectedSession) return;
-    // Generate invoice
+    // Generate invoice automatically
     await supabase.from('invoices').insert({
       session_id: selectedSession.id,
       mart_id: selectedSession.mart_id,
@@ -174,9 +166,18 @@ const CashierDashboard = () => {
       total_quantity: sessionItems.reduce((s, i) => s + i.quantity, 0),
       payment_method: (selectedSession.payment_method || 'cash') as any,
     });
-    await supabase.from('sessions').update({ state: 'CLOSED' as any }).eq('id', selectedSession.id);
-    toast.success('Session closed, invoice generated.');
-    setSelectedSession(null);
+    await supabase.from('sessions').update({ state: 'PAID' as any }).eq('id', selectedSession.id);
+    // Audit log
+    if (user) {
+      await supabase.from('audit_logs').insert({
+        action: 'PAYMENT_COMPLETED',
+        user_id: user.id,
+        session_id: selectedSession.id,
+        details: { amount: selectedSession.total_amount, method: selectedSession.payment_method },
+      });
+    }
+    toast.success('Payment recorded & invoice generated!');
+    setSelectedSession(prev => prev ? { ...prev, state: 'PAID' } : null);
     fetchSessions();
   };
 
@@ -385,9 +386,11 @@ const CashierDashboard = () => {
             </Button>
           )}
           {selectedSession.state === 'PAID' && (
-            <Button className="w-full py-6 text-base" variant="outline" onClick={closeSession}>
-              <Receipt className="mr-2 h-5 w-5" /> Close & Generate Invoice
-            </Button>
+            <div className="rounded-xl border-2 border-primary/20 bg-primary/5 p-4 text-center">
+              <CheckCircle2 className="mx-auto mb-2 h-8 w-8 text-primary" />
+              <p className="text-sm font-medium text-foreground">Payment complete & invoice generated</p>
+              <p className="text-xs text-muted-foreground">Customer can show receipt QR at exit</p>
+            </div>
           )}
         </div>
       </div>
