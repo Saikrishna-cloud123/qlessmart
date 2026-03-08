@@ -11,7 +11,7 @@ const Index = () => {
     <div className="min-h-screen bg-background">
       {/* Hero */}
       <header className="relative overflow-hidden">
-        <div className="absolute inset-0 gradient-primary opacity-[0.03]" />
+        <div className="pointer-events-none absolute inset-0 gradient-primary opacity-[0.03]" />
         <nav className="container mx-auto flex items-center justify-between px-6 py-4">
           <div className="flex items-center gap-2">
             <img src={ecartLogo} alt="eCart" className="h-9 w-9" />
