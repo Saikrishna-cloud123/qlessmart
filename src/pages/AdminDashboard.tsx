@@ -47,10 +47,6 @@ const AdminDashboard = () => {
   const [tab, setTab] = useState<Tab>('details');
   const [loading, setLoading] = useState(true);
 
-  // Create mart form
-  const [createMode, setCreateMode] = useState(false);
-  const [newMartName, setNewMartName] = useState('');
-
   // Branch form
   const [newBranchName, setNewBranchName] = useState('');
   const [newBranchUrl, setNewBranchUrl] = useState('');
@@ -81,26 +77,13 @@ const AdminDashboard = () => {
       const { data: e } = await supabase.from('employees').select('*').eq('mart_id', data.id);
       setEmployees((e || []) as Employee[]);
     } else {
-      setCreateMode(true);
+      // No mart found — redirect to registration
+      navigate('/register-mart');
     }
     setLoading(false);
   }, [user]);
 
   useEffect(() => { fetchMart(); }, [fetchMart]);
-
-  const createMart = async () => {
-    if (!user || !newMartName.trim()) return;
-    const { data, error } = await supabase.from('marts').insert({
-      name: newMartName.trim(),
-      owner_id: user.id,
-    }).select().single();
-    if (error) { toast.error(error.message); return; }
-    // Add admin role
-    await supabase.from('user_roles').insert({ user_id: user.id, role: 'admin' as any });
-    toast.success('Store created!');
-    setCreateMode(false);
-    fetchMart();
-  };
 
   const addBranch = async () => {
     if (!mart || !newBranchName.trim()) return;
@@ -170,27 +153,6 @@ const AdminDashboard = () => {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary/30 border-t-primary" />
-      </div>
-    );
-  }
-
-  if (createMode) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background p-6">
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="glass-card w-full max-w-sm rounded-2xl p-8">
-          <Store className="mx-auto mb-4 h-12 w-12 text-primary" />
-          <h1 className="mb-2 text-center text-2xl font-bold text-foreground">Register Your Store</h1>
-          <p className="mb-6 text-center text-sm text-muted-foreground">Create your mart to get started</p>
-          <form onSubmit={(e) => { e.preventDefault(); createMart(); }}>
-            <Input placeholder="Store name" value={newMartName} onChange={(e) => setNewMartName(e.target.value)} className="mb-4" autoFocus />
-            <Button type="submit" className="w-full gradient-primary border-0 text-primary-foreground" disabled={!newMartName.trim()}>
-              Create Store
-            </Button>
-          </form>
-          <Button variant="ghost" className="mt-3 w-full" onClick={() => navigate('/')}>
-            <ArrowLeft className="mr-2 h-4 w-4" /> Back
-          </Button>
-        </motion.div>
       </div>
     );
   }

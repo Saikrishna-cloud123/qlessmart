@@ -13,6 +13,7 @@ import CashierDashboard from "./pages/CashierDashboard";
 import AdminDashboard from "./pages/AdminDashboard";
 import MyBills from "./pages/MyBills";
 import ExitScan from "./pages/ExitScan";
+import RegisterMart from "./pages/RegisterMart";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -51,6 +52,11 @@ const App = () => (
             <Route path="/exit-scan" element={
               <ProtectedRoute requiredRole="cashier">
                 <ExitScan />
+              </ProtectedRoute>
+            } />
+            <Route path="/register-mart" element={
+              <ProtectedRoute>
+                <RegisterMart />
               </ProtectedRoute>
             } />
             <Route path="*" element={<NotFound />} />
