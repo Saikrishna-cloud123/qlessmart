@@ -27,15 +27,23 @@ const Index = () => {
                   {profile?.display_name || 'User'}
                 </span>
                 {hasRole('cashier') && (
-                  <Button variant="ghost" size="sm" onClick={() => navigate('/cashier')}>
-                    Cashier
-                  </Button>
+                  <>
+                    <Button variant="ghost" size="sm" onClick={() => navigate('/cashier')}>
+                      Cashier
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => navigate('/exit-scan')}>
+                      <ShieldCheck className="h-4 w-4 mr-1" /> Exit
+                    </Button>
+                  </>
                 )}
                 {hasRole('admin') && (
                   <Button variant="ghost" size="sm" onClick={() => navigate('/admin')}>
                     Admin
                   </Button>
                 )}
+                <Button variant="ghost" size="sm" onClick={() => navigate('/bills')}>
+                  <Receipt className="h-4 w-4 mr-1" /> Bills
+                </Button>
                 <Button variant="ghost" size="sm" onClick={() => signOut()}>
                   <LogOut className="h-4 w-4 mr-1" /> Sign Out
                 </Button>
