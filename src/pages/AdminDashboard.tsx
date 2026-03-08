@@ -34,7 +34,7 @@ interface Branch {
 }
 interface Employee {
   id: string; employee_name: string; user_id: string;
-  branch_id: string | null; is_active: boolean;
+  branch_id: string | null; is_active: boolean; email?: string | null;
 }
 interface SessionRow {
   id: string; session_code: string; state: string; total_amount: number;
@@ -121,11 +121,16 @@ const AdminDashboard = () => {
 
       const [branchRes, empRes, sessRes] = await Promise.all([
         supabase.from('branches').select('*').eq('mart_id', m.id),
-        supabase.from('employees').select('*').eq('mart_id', m.id),
+        supabase.from('employees').select('*, profiles:user_id(email)').eq('mart_id', m.id),
         supabase.from('sessions').select('id, session_code, state, total_amount, payment_method, created_at, user_id').eq('mart_id', m.id).order('created_at', { ascending: false }),
       ]);
       setBranches((branchRes.data || []) as Branch[]);
-      setEmployees((empRes.data || []) as Employee[]);
+      const emps = (empRes.data || []).map((e: any) => ({
+        ...e,
+        email: e.profiles?.email || null,
+        profiles: undefined,
+      })) as Employee[];
+      setEmployees(emps);
       setAllSessions((sessRes.data || []) as SessionRow[]);
     } else {
       navigate('/register-mart');
@@ -395,6 +400,11 @@ const AdminDashboard = () => {
                           </div>
                           <div>
                             <p className={`font-medium ${emp.is_active ? 'text-foreground' : 'text-muted-foreground line-through'}`}>{emp.employee_name}</p>
+                            {emp.email && (
+                              <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                                <Mail className="h-3 w-3" /> {emp.email}
+                              </p>
+                            )}
                             <p className="text-xs text-muted-foreground">{emp.is_active ? '● Active' : '○ Inactive'}</p>
                           </div>
                         </div>
