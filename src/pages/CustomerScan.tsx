@@ -44,10 +44,12 @@ const CustomerScan = () => {
 
   const [barcode, setBarcode] = useState('');
   const [scanMode, setScanMode] = useState<'manual' | 'camera'>('manual');
+  const [storeScanMode, setStoreScanMode] = useState<'manual' | 'camera'>('manual');
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [upiLink, setUpiLink] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLDivElement>(null);
+  const storeVideoRef = useRef<HTMLDivElement>(null);
 
   // Filter payment options based on store config
   const paymentOptions = ALL_PAYMENT_OPTIONS.filter(opt =>
@@ -209,7 +211,7 @@ const CustomerScan = () => {
     }
   }, [session?.state, session?.payment_method, storeConfig]);
 
-  // Camera scanner
+  // Camera scanner for product barcodes
   useEffect(() => {
     if (scanMode !== 'camera' || !videoRef.current || step !== 'scan') return;
     let html5QrCode: any;
@@ -236,6 +238,46 @@ const CustomerScan = () => {
     return () => { if (html5QrCode) { try { html5QrCode.stop(); } catch {} } };
   }, [scanMode, handleScan, step]);
 
+  // Camera scanner for store QR selection
+  useEffect(() => {
+    if (storeScanMode !== 'camera' || step !== 'select-mart' || session) return;
+    // Wait for DOM element
+    const timer = setTimeout(async () => {
+      const el = document.getElementById('store-qr-reader');
+      if (!el) return;
+      let html5QrCode: any;
+      const { Html5Qrcode } = await import('html5-qrcode');
+      html5QrCode = new Html5Qrcode('store-qr-reader');
+      try {
+        await html5QrCode.start(
+          { facingMode: 'environment' },
+          { fps: 10, qrbox: { width: 250, height: 250 } },
+          async (decodedText: string) => {
+            html5QrCode.pause();
+            const handled = await handleStoreQR(decodedText);
+            if (!handled) {
+              toast.error('Invalid QR format. Expected: store:{id}|branch:{id}');
+              setTimeout(() => { try { html5QrCode.resume(); } catch {} }, 2000);
+            }
+          },
+          () => {}
+        );
+      } catch {
+        toast.error('Camera access denied');
+        setStoreScanMode('manual');
+      }
+      // Store cleanup ref
+      (el as any).__html5QrCode = html5QrCode;
+    }, 100);
+    return () => {
+      clearTimeout(timer);
+      const el = document.getElementById('store-qr-reader');
+      if (el && (el as any).__html5QrCode) {
+        try { (el as any).__html5QrCode.stop(); } catch {}
+      }
+    };
+  }, [storeScanMode, step, session]);
+
   const totalQty = items.reduce((s, i) => s + i.quantity, 0);
 
   // === STEP: Select Mart (with QR scan option) ===
@@ -256,26 +298,50 @@ const CustomerScan = () => {
             <QrCode className="mx-auto mb-2 h-8 w-8 text-primary" />
             <p className="text-sm font-semibold text-foreground mb-2">Scan Store QR Code</p>
             <p className="text-xs text-muted-foreground mb-3">Scan the QR at the store entrance to start</p>
-            <div className="flex gap-2">
-              <Input
-                placeholder="Paste store QR data..."
-                value={barcode}
-                onChange={e => setBarcode(e.target.value)}
-                className="font-mono text-xs"
-              />
+            
+            <div className="flex gap-2 mb-3 justify-center">
               <Button
+                variant={storeScanMode === 'manual' ? 'default' : 'outline'}
                 size="sm"
-                className="gradient-primary border-0 text-primary-foreground"
-                disabled={!barcode.trim()}
-                onClick={async () => {
-                  const handled = await handleStoreQR(barcode.trim());
-                  if (!handled) toast.error('Invalid QR format. Expected: store:{id}|branch:{id}');
-                  setBarcode('');
-                }}
+                onClick={() => setStoreScanMode('manual')}
+                className={storeScanMode === 'manual' ? 'gradient-primary border-0 text-primary-foreground' : ''}
               >
-                <ScanBarcode className="h-4 w-4" />
+                <Keyboard className="mr-1.5 h-4 w-4" /> Manual
+              </Button>
+              <Button
+                variant={storeScanMode === 'camera' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setStoreScanMode('camera')}
+                className={storeScanMode === 'camera' ? 'gradient-primary border-0 text-primary-foreground' : ''}
+              >
+                <Camera className="mr-1.5 h-4 w-4" /> Camera
               </Button>
             </div>
+
+            {storeScanMode === 'camera' ? (
+              <div id="store-qr-reader" className="overflow-hidden rounded-xl mb-3" />
+            ) : (
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Paste store QR data..."
+                  value={barcode}
+                  onChange={e => setBarcode(e.target.value)}
+                  className="font-mono text-xs"
+                />
+                <Button
+                  size="sm"
+                  className="gradient-primary border-0 text-primary-foreground"
+                  disabled={!barcode.trim()}
+                  onClick={async () => {
+                    const handled = await handleStoreQR(barcode.trim());
+                    if (!handled) toast.error('Invalid QR format. Expected: store:{id}|branch:{id}');
+                    setBarcode('');
+                  }}
+                >
+                  <ScanBarcode className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
           </div>
 
           <div className="mb-4 flex items-center gap-3">

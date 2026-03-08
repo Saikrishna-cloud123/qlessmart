@@ -167,9 +167,9 @@ const ExitScan = () => {
     setLoading(false);
   };
 
-  // Camera scanner
+  // Camera scanner - stop when result is showing, restart when cleared
   useEffect(() => {
-    if (scanMode !== 'camera' || !videoRef.current) return;
+    if (scanMode !== 'camera' || !videoRef.current || verifyResult !== null) return;
     let html5QrCode: any;
     const startScanner = async () => {
       const { Html5Qrcode } = await import('html5-qrcode');
@@ -192,7 +192,7 @@ const ExitScan = () => {
     };
     startScanner();
     return () => { if (html5QrCode) { try { html5QrCode.stop(); } catch {} } };
-  }, [scanMode]);
+  }, [scanMode, verifyResult]);
 
   if (!employeeMartId) {
     return (
@@ -238,41 +238,46 @@ const ExitScan = () => {
       </header>
 
       <div className="mx-auto max-w-md p-6">
-        {/* Scanner mode toggle */}
-        <div className="mb-4 flex gap-2">
-          <Button
-            variant={scanMode === 'manual' ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setScanMode('manual')}
-            className={scanMode === 'manual' ? 'gradient-primary border-0 text-primary-foreground' : ''}
-          >
-            <Keyboard className="mr-1.5 h-4 w-4" /> Manual
-          </Button>
-          <Button
-            variant={scanMode === 'camera' ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setScanMode('camera')}
-            className={scanMode === 'camera' ? 'gradient-primary border-0 text-primary-foreground' : ''}
-          >
-            <Camera className="mr-1.5 h-4 w-4" /> Camera
-          </Button>
-        </div>
+        {/* Scanner - hidden when result is showing */}
+        {!verifyResult && !loading && (
+          <>
+            {/* Scanner mode toggle */}
+            <div className="mb-4 flex gap-2">
+              <Button
+                variant={scanMode === 'manual' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setScanMode('manual')}
+                className={scanMode === 'manual' ? 'gradient-primary border-0 text-primary-foreground' : ''}
+              >
+                <Keyboard className="mr-1.5 h-4 w-4" /> Manual
+              </Button>
+              <Button
+                variant={scanMode === 'camera' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setScanMode('camera')}
+                className={scanMode === 'camera' ? 'gradient-primary border-0 text-primary-foreground' : ''}
+              >
+                <Camera className="mr-1.5 h-4 w-4" /> Camera
+              </Button>
+            </div>
 
-        {scanMode === 'manual' ? (
-          <form onSubmit={(e) => { e.preventDefault(); handleScan(scanInput); }} className="mb-6 flex gap-2">
-            <Input
-              placeholder="Scan receipt QR or enter session ID..."
-              value={scanInput}
-              onChange={(e) => setScanInput(e.target.value)}
-              className="font-mono"
-              autoFocus
-            />
-            <Button type="submit" disabled={loading || !scanInput.trim()} className="gradient-primary border-0 text-primary-foreground">
-              <ScanBarcode className="h-5 w-5" />
-            </Button>
-          </form>
-        ) : (
-          <div id="exit-reader" ref={videoRef} className="mb-6 overflow-hidden rounded-xl" />
+            {scanMode === 'manual' ? (
+              <form onSubmit={(e) => { e.preventDefault(); handleScan(scanInput); }} className="mb-6 flex gap-2">
+                <Input
+                  placeholder="Scan receipt QR or enter session ID..."
+                  value={scanInput}
+                  onChange={(e) => setScanInput(e.target.value)}
+                  className="font-mono"
+                  autoFocus
+                />
+                <Button type="submit" disabled={loading || !scanInput.trim()} className="gradient-primary border-0 text-primary-foreground">
+                  <ScanBarcode className="h-5 w-5" />
+                </Button>
+              </form>
+            ) : (
+              <div id="exit-reader" ref={videoRef} className="mb-6 overflow-hidden rounded-xl" />
+            )}
+          </>
         )}
 
         {/* Valid result */}
