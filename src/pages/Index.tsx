@@ -51,10 +51,12 @@ const Index = () => {
                 <ThemeToggle />
               </>
             ) : (
-              <Button variant="ghost" size="sm" onClick={() => navigate('/auth')}>
-                <LogIn className="h-4 w-4 mr-1" /> Sign In
-              </Button>
-              <ThemeToggle />
+              <>
+                <Button variant="ghost" size="sm" onClick={() => navigate('/auth')}>
+                  <LogIn className="h-4 w-4 mr-1" /> Sign In
+                </Button>
+                <ThemeToggle />
+              </>
             )}
           </div>
         </nav>
