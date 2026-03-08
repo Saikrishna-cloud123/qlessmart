@@ -81,6 +81,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(newSession?.user ?? null);
 
         if (newSession?.user) {
+          setLoading(true);
           loadUserData(newSession.user.id).then(() => {
             if (mountedRef.current) setLoading(false);
           });
