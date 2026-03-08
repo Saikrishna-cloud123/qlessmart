@@ -103,12 +103,6 @@ const AdminDashboard = () => {
       .then(({ data }) => setAuditLogs((data || []) as AuditLog[]));
   }, [tab, user]);
 
-  // Fetch products when branch selected
-  useEffect(() => {
-    if (tab !== 'inventory' || !selectedBranch) return;
-    supabase.from('products').select('*').eq('branch_id', selectedBranch).order('created_at', { ascending: false })
-      .then(({ data }) => setProducts((data || []) as Product[]));
-  }, [tab, selectedBranch]);
 
   // Analytics data
   const paidSessions = allSessions.filter(s => s.state === 'PAID' || s.state === 'CLOSED');
