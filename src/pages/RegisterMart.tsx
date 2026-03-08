@@ -73,6 +73,7 @@ const RegisterMart = () => {
 
     // Add admin role
     await supabase.from('user_roles').insert({ user_id: user.id, role: 'admin' as any });
+    await refreshRoles();
     setMartId(data.id);
     toast.success('Store created!');
     setStep('branch');
