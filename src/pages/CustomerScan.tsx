@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   ScanBarcode, Plus, Minus, Trash2, Lock, ShoppingCart, Package,
   ArrowLeft, Keyboard, Camera, Store, MapPin, CreditCard, Banknote,
-  Smartphone, QrCode, ChevronRight, Receipt,
+  Smartphone, QrCode, ChevronRight, Receipt, XCircle,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
