@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import {
   Shield, ShieldCheck, ShieldX, ArrowLeft, ScanBarcode,
   Keyboard, Camera, CheckCircle2, XCircle, Package, User,
-  AlertTriangle,
+  AlertTriangle, Store, MapPin, LogOut,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
