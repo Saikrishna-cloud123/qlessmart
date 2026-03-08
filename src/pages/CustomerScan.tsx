@@ -211,7 +211,7 @@ const CustomerScan = () => {
     }
   }, [session?.state, session?.payment_method, storeConfig]);
 
-  // Camera scanner
+  // Camera scanner for product barcodes
   useEffect(() => {
     if (scanMode !== 'camera' || !videoRef.current || step !== 'scan') return;
     let html5QrCode: any;
@@ -237,6 +237,46 @@ const CustomerScan = () => {
     startScanner();
     return () => { if (html5QrCode) { try { html5QrCode.stop(); } catch {} } };
   }, [scanMode, handleScan, step]);
+
+  // Camera scanner for store QR selection
+  useEffect(() => {
+    if (storeScanMode !== 'camera' || step !== 'select-mart' || session) return;
+    // Wait for DOM element
+    const timer = setTimeout(async () => {
+      const el = document.getElementById('store-qr-reader');
+      if (!el) return;
+      let html5QrCode: any;
+      const { Html5Qrcode } = await import('html5-qrcode');
+      html5QrCode = new Html5Qrcode('store-qr-reader');
+      try {
+        await html5QrCode.start(
+          { facingMode: 'environment' },
+          { fps: 10, qrbox: { width: 250, height: 250 } },
+          async (decodedText: string) => {
+            html5QrCode.pause();
+            const handled = await handleStoreQR(decodedText);
+            if (!handled) {
+              toast.error('Invalid QR format. Expected: store:{id}|branch:{id}');
+              setTimeout(() => { try { html5QrCode.resume(); } catch {} }, 2000);
+            }
+          },
+          () => {}
+        );
+      } catch {
+        toast.error('Camera access denied');
+        setStoreScanMode('manual');
+      }
+      // Store cleanup ref
+      (el as any).__html5QrCode = html5QrCode;
+    }, 100);
+    return () => {
+      clearTimeout(timer);
+      const el = document.getElementById('store-qr-reader');
+      if (el && (el as any).__html5QrCode) {
+        try { (el as any).__html5QrCode.stop(); } catch {}
+      }
+    };
+  }, [storeScanMode, step, session]);
 
   const totalQty = items.reduce((s, i) => s + i.quantity, 0);
 
