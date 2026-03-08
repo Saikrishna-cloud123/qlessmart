@@ -48,6 +48,7 @@ const Index = () => {
                 <Button variant="ghost" size="sm" onClick={() => signOut()}>
                   <LogOut className="h-4 w-4 mr-1" /> Sign Out
                 </Button>
+                <ThemeToggle />
               </>
             ) : (
               <Button variant="ghost" size="sm" onClick={() => navigate('/auth')}>
