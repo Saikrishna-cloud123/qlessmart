@@ -714,7 +714,7 @@ const CustomerScan = () => {
       </div>
 
       {/* Bottom bar */}
-      {items.length > 0 && session?.state === 'ACTIVE' && (
+      {items.length > 0 && session?.state === 'ACTIVE' && session.total_amount > 0 && (
         <div className="sticky bottom-0 border-t border-border bg-card p-4">
           <div className="mb-3 flex items-center justify-between">
             <span className="text-sm text-muted-foreground">{totalQty} items</span>
@@ -725,6 +725,23 @@ const CustomerScan = () => {
           </Button>
         </div>
       )}
+
+      <AlertDialog open={cancelDialogOpen} onOpenChange={setCancelDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel Cart?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to cancel this cart? All items will be removed and this action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep Shopping</AlertDialogCancel>
+            <AlertDialogAction onClick={cancelSession} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Cancel Cart
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };
