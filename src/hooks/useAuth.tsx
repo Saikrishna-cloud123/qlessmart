@@ -34,14 +34,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [roles, setRoles] = useState<AppRole[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchProfile = async (userId: string) => {
+  const fetchProfile = useCallback(async (userId: string) => {
     const { data } = await supabase
       .from('profiles')
       .select('*')
       .eq('id', userId)
       .single();
     if (data) setProfile(data as Profile);
-  };
+  }, []);
 
   const fetchRoles = useCallback(async (userId?: string) => {
     const uid = userId || user?.id;
