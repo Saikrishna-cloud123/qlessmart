@@ -298,26 +298,50 @@ const CustomerScan = () => {
             <QrCode className="mx-auto mb-2 h-8 w-8 text-primary" />
             <p className="text-sm font-semibold text-foreground mb-2">Scan Store QR Code</p>
             <p className="text-xs text-muted-foreground mb-3">Scan the QR at the store entrance to start</p>
-            <div className="flex gap-2">
-              <Input
-                placeholder="Paste store QR data..."
-                value={barcode}
-                onChange={e => setBarcode(e.target.value)}
-                className="font-mono text-xs"
-              />
+            
+            <div className="flex gap-2 mb-3 justify-center">
               <Button
+                variant={storeScanMode === 'manual' ? 'default' : 'outline'}
                 size="sm"
-                className="gradient-primary border-0 text-primary-foreground"
-                disabled={!barcode.trim()}
-                onClick={async () => {
-                  const handled = await handleStoreQR(barcode.trim());
-                  if (!handled) toast.error('Invalid QR format. Expected: store:{id}|branch:{id}');
-                  setBarcode('');
-                }}
+                onClick={() => setStoreScanMode('manual')}
+                className={storeScanMode === 'manual' ? 'gradient-primary border-0 text-primary-foreground' : ''}
               >
-                <ScanBarcode className="h-4 w-4" />
+                <Keyboard className="mr-1.5 h-4 w-4" /> Manual
+              </Button>
+              <Button
+                variant={storeScanMode === 'camera' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setStoreScanMode('camera')}
+                className={storeScanMode === 'camera' ? 'gradient-primary border-0 text-primary-foreground' : ''}
+              >
+                <Camera className="mr-1.5 h-4 w-4" /> Camera
               </Button>
             </div>
+
+            {storeScanMode === 'camera' ? (
+              <div id="store-qr-reader" className="overflow-hidden rounded-xl mb-3" />
+            ) : (
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Paste store QR data..."
+                  value={barcode}
+                  onChange={e => setBarcode(e.target.value)}
+                  className="font-mono text-xs"
+                />
+                <Button
+                  size="sm"
+                  className="gradient-primary border-0 text-primary-foreground"
+                  disabled={!barcode.trim()}
+                  onClick={async () => {
+                    const handled = await handleStoreQR(barcode.trim());
+                    if (!handled) toast.error('Invalid QR format. Expected: store:{id}|branch:{id}');
+                    setBarcode('');
+                  }}
+                >
+                  <ScanBarcode className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
           </div>
 
           <div className="mb-4 flex items-center gap-3">
