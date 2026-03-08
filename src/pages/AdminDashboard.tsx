@@ -85,20 +85,6 @@ const AdminDashboard = () => {
 
   useEffect(() => { fetchMart(); }, [fetchMart]);
 
-  const createMart = async () => {
-    if (!user || !newMartName.trim()) return;
-    const { data, error } = await supabase.from('marts').insert({
-      name: newMartName.trim(),
-      owner_id: user.id,
-    }).select().single();
-    if (error) { toast.error(error.message); return; }
-    // Add admin role
-    await supabase.from('user_roles').insert({ user_id: user.id, role: 'admin' as any });
-    toast.success('Store created!');
-    setCreateMode(false);
-    fetchMart();
-  };
-
   const addBranch = async () => {
     if (!mart || !newBranchName.trim()) return;
     const { error } = await supabase.from('branches').insert({
