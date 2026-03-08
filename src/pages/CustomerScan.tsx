@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   ScanBarcode, Plus, Minus, Trash2, Lock, ShoppingCart, Package,
   ArrowLeft, Keyboard, Camera, Store, MapPin, CreditCard, Banknote,
-  Smartphone, QrCode, ChevronRight, Receipt,
+  Smartphone, QrCode, ChevronRight, Receipt, XCircle,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
@@ -47,6 +47,7 @@ const CustomerScan = () => {
   const [storeScanMode, setStoreScanMode] = useState<'manual' | 'camera'>('manual');
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [upiLink, setUpiLink] = useState<string | null>(null);
+  const [martName, setMartName] = useState<string>('');
   const inputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLDivElement>(null);
   const storeVideoRef = useRef<HTMLDivElement>(null);
@@ -61,6 +62,11 @@ const CustomerScan = () => {
       if (session.state === 'ACTIVE') setStep('scan');
       else if (session.state === 'LOCKED') setStep('locked');
       else if (['VERIFIED', 'PAID', 'CLOSED'].includes(session.state)) setStep('done');
+      // Load mart name for active session
+      if (!martName) {
+        supabase.from('marts').select('name').eq('id', session.mart_id).single()
+          .then(({ data }) => { if (data) setMartName(data.name); });
+      }
     }
   }, [session]);
 
@@ -98,6 +104,7 @@ const CustomerScan = () => {
       const { data: martData } = await supabase.from('marts').select('id, name').eq('id', martId).single();
       const { data: branchData } = await supabase.from('branches').select('id, branch_name').eq('id', branchId).eq('mart_id', martId).single();
       if (martData && branchData) {
+        setMartName(martData.name);
         const result = await createSession(martId, branchId);
         if (result) {
           toast.success(`Welcome to ${martData.name} — ${branchData.branch_name}`);
@@ -111,7 +118,11 @@ const CustomerScan = () => {
     return false;
   };
 
-  const handleMartSelect = (martId: string) => setSelectedMart(martId);
+  const handleMartSelect = (martId: string) => {
+    const mart = marts.find(m => m.id === martId);
+    if (mart) setMartName(mart.name);
+    setSelectedMart(martId);
+  };
 
   const handleBranchSelect = async (branchId: string) => {
     if (!selectedMart) return;
@@ -126,6 +137,18 @@ const CustomerScan = () => {
   }, [session, lookupAndAddItem]);
 
   const handleProceedToPayment = () => setStep('payment');
+
+  const cancelSession = async () => {
+    if (!session) return;
+    if (!confirm('Are you sure you want to cancel this cart? All items will be removed.')) return;
+    await supabase.from('cart_items').delete().eq('session_id', session.id);
+    await supabase.from('carts').delete().eq('session_id', session.id);
+    await supabase.from('sessions').update({ state: 'CLOSED' as any }).eq('id', session.id);
+    endSession();
+    setMartName('');
+    setStep('select-mart');
+    toast.success('Cart cancelled');
+  };
 
   const handleLockCart = async (method: PaymentMethod) => {
     await setPaymentMethod(method);
@@ -571,7 +594,9 @@ const CustomerScan = () => {
               <ArrowLeft className="h-5 w-5" />
             </Button>
             <div>
-              <h1 className="text-lg font-bold text-foreground">Scan & Cart</h1>
+              <h1 className="text-lg font-bold text-foreground">
+                {martName || 'Scan & Cart'}
+              </h1>
               <p className="text-xs text-muted-foreground font-mono">{session?.session_code}</p>
             </div>
           </div>
@@ -583,6 +608,11 @@ const CustomerScan = () => {
               <ShoppingCart className="h-4 w-4 text-primary" />
               <span className="text-sm font-bold text-primary">{items.length}</span>
             </div>
+            {session?.state === 'ACTIVE' && (
+              <Button variant="ghost" size="icon" className="text-destructive" onClick={cancelSession} title="Cancel cart">
+                <XCircle className="h-5 w-5" />
+              </Button>
+            )}
           </div>
         </div>
       </header>
