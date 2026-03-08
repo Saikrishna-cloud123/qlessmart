@@ -426,6 +426,51 @@ const CashierDashboard = () => {
         </div>
       </header>
       <div className="mx-auto max-w-2xl p-6">
+        {showSettings ? (
+          <div className="space-y-6">
+            <div className="flex flex-col items-center gap-3">
+              {profileAvatar ? (
+                <img src={profileAvatar} alt="" className="h-20 w-20 rounded-full object-cover border-2 border-border" />
+              ) : (
+                <div className="flex h-20 w-20 items-center justify-center rounded-full bg-primary/10 border-2 border-border">
+                  <User className="h-10 w-10 text-primary" />
+                </div>
+              )}
+            </div>
+            <div className="rounded-xl border border-border bg-card p-6 space-y-4">
+              <h3 className="font-semibold text-foreground flex items-center gap-2"><User className="h-4 w-4" /> My Profile</h3>
+              <div>
+                <Label className="text-sm font-medium text-foreground">Display Name</Label>
+                <Input value={profileName} onChange={e => setProfileName(e.target.value)} placeholder="Your name" className="mt-1" />
+              </div>
+              <div>
+                <Label className="text-sm font-medium text-foreground">Email</Label>
+                <div className="mt-1 flex items-center gap-2 rounded-md border border-input bg-muted px-3 py-2 text-sm text-muted-foreground">
+                  <Mail className="h-4 w-4" /> {user?.email}
+                </div>
+              </div>
+              <div>
+                <Label className="text-sm font-medium text-foreground">Avatar URL</Label>
+                <Input value={profileAvatar} onChange={e => setProfileAvatar(e.target.value)} placeholder="https://..." className="mt-1" />
+              </div>
+              <Button disabled={savingProfile} className="w-full gradient-primary border-0 text-primary-foreground" onClick={async () => {
+                setSavingProfile(true);
+                const { error } = await updateProfile({ display_name: profileName.trim() || null, avatar_url: profileAvatar.trim() || null });
+                setSavingProfile(false);
+                if (error) toast.error('Failed to save'); else toast.success('Profile updated!');
+              }}>
+                <Save className="mr-2 h-4 w-4" /> Save Profile
+              </Button>
+            </div>
+            <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-6">
+              <h3 className="mb-3 font-semibold text-destructive">Account</h3>
+              <Button variant="destructive" size="sm" onClick={() => signOut()}>
+                <LogOut className="mr-2 h-4 w-4" /> Sign Out
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <>
         <form onSubmit={(e) => { e.preventDefault(); handleScanQR(); }} className="mb-6 flex gap-2">
           <Input placeholder="Scan or enter session code..." value={scanInput} onChange={(e) => setScanInput(e.target.value)} className="font-mono" />
           <Button type="submit" className="gradient-primary border-0 text-primary-foreground">
