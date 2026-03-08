@@ -143,6 +143,19 @@ const AdminDashboard = () => {
 
   useEffect(() => { fetchMart(); }, [fetchMart]);
 
+  // Realtime: refresh data when sessions change
+  useEffect(() => {
+    if (!mart) return;
+    const channel = supabase
+      .channel('admin-sessions-rt')
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'sessions',
+        filter: `mart_id=eq.${mart.id}`,
+      }, () => { fetchMart(); })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [mart?.id, fetchMart]);
+
   // Load audit logs on demand
   useEffect(() => {
     if (tab !== 'integrations' || !user) return;
