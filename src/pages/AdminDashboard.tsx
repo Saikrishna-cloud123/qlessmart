@@ -78,7 +78,7 @@ const AdminDashboard = () => {
       setPayFromApp(data.customer_pay_from_app);
       const { data: b } = await supabase.from('branches').select('*').eq('mart_id', data.id);
       setBranches((b || []) as Branch[]);
-      if (b && b.length > 0 && !selectedBranch) setSelectedBranch(b[0].id);
+      
       const { data: e } = await supabase.from('employees').select('*').eq('mart_id', data.id);
       setEmployees((e || []) as Employee[]);
       const { data: sess } = await supabase.from('sessions').select('id, session_code, state, total_amount, payment_method, created_at, user_id').eq('mart_id', data.id).order('created_at', { ascending: false });
