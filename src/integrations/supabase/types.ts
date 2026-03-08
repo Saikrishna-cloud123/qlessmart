@@ -134,6 +134,38 @@ export type Database = {
           },
         ]
       }
+      carts: {
+        Row: {
+          cart_hash: string | null
+          created_at: string
+          id: string
+          locked_at: string | null
+          session_id: string
+        }
+        Insert: {
+          cart_hash?: string | null
+          created_at?: string
+          id?: string
+          locked_at?: string | null
+          session_id: string
+        }
+        Update: {
+          cart_hash?: string | null
+          created_at?: string
+          id?: string
+          locked_at?: string | null
+          session_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "carts_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: true
+            referencedRelation: "sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       employees: {
         Row: {
           branch_id: string | null
@@ -509,7 +541,7 @@ export type Database = {
       }
     }
     Enums: {
-      app_role: "customer" | "cashier" | "admin"
+      app_role: "customer" | "cashier" | "admin" | "exit_guard"
       cart_state:
         | "CREATED"
         | "ACTIVE"
@@ -645,7 +677,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      app_role: ["customer", "cashier", "admin"],
+      app_role: ["customer", "cashier", "admin", "exit_guard"],
       cart_state: ["CREATED", "ACTIVE", "LOCKED", "VERIFIED", "PAID", "CLOSED"],
       payment_method: ["cash", "card", "upi_counter", "upi_app", "razorpay"],
     },

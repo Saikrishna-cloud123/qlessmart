@@ -49,6 +49,7 @@ const AdminDashboard = () => {
   const [newBranchAddr, setNewBranchAddr] = useState('');
   const [newEmpName, setNewEmpName] = useState('');
   const [newEmpEmail, setNewEmpEmail] = useState('');
+  const [newEmpRole, setNewEmpRole] = useState<'cashier' | 'exit_guard'>('cashier');
   const [configJson, setConfigJson] = useState('');
   const [upiId, setUpiId] = useState('');
   const [merchantName, setMerchantName] = useState('');
@@ -152,8 +153,8 @@ const AdminDashboard = () => {
     if (!prof) { toast.error('User not found. They must create an account first.'); return; }
     const { error } = await supabase.from('employees').insert({ mart_id: mart.id, user_id: prof.id, employee_name: newEmpName.trim() });
     if (error) { toast.error(error.message); return; }
-    await supabase.from('user_roles').insert({ user_id: prof.id, role: 'cashier' as any });
-    toast.success('Employee added'); setNewEmpName(''); setNewEmpEmail(''); fetchMart();
+    await supabase.from('user_roles').insert({ user_id: prof.id, role: newEmpRole as any });
+    toast.success(`${newEmpRole === 'exit_guard' ? 'Exit Guard' : 'Cashier'} added`); setNewEmpName(''); setNewEmpEmail(''); setNewEmpRole('cashier'); fetchMart();
   };
   const removeEmployee = async (emp: Employee) => {
     await supabase.from('employees').delete().eq('id', emp.id);
@@ -512,11 +513,31 @@ const AdminDashboard = () => {
                   ))}
                 </div>
                 <div className="rounded-xl border border-border bg-card p-4">
-                  <h3 className="mb-3 font-semibold text-foreground">Add Employee (Cashier)</h3>
+                  <h3 className="mb-3 font-semibold text-foreground">Add Employee</h3>
                   <p className="mb-3 text-xs text-muted-foreground">The employee must have an account first.</p>
                   <div className="space-y-3">
                     <Input placeholder="Employee name *" value={newEmpName} onChange={e => setNewEmpName(e.target.value)} />
                     <Input placeholder="Employee email *" type="email" value={newEmpEmail} onChange={e => setNewEmpEmail(e.target.value)} />
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        variant={newEmpRole === 'cashier' ? 'default' : 'outline'}
+                        size="sm"
+                        className={newEmpRole === 'cashier' ? 'gradient-primary border-0 text-primary-foreground' : ''}
+                        onClick={() => setNewEmpRole('cashier')}
+                      >
+                        Cashier
+                      </Button>
+                      <Button
+                        type="button"
+                        variant={newEmpRole === 'exit_guard' ? 'default' : 'outline'}
+                        size="sm"
+                        className={newEmpRole === 'exit_guard' ? 'gradient-primary border-0 text-primary-foreground' : ''}
+                        onClick={() => setNewEmpRole('exit_guard')}
+                      >
+                        Exit Guard
+                      </Button>
+                    </div>
                     <Button onClick={addEmployee} disabled={!newEmpName.trim() || !newEmpEmail.trim()} className="gradient-primary border-0 text-primary-foreground"><Plus className="mr-2 h-4 w-4" /> Add Employee</Button>
                   </div>
                 </div>

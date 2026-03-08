@@ -9,7 +9,7 @@ interface Profile {
   avatar_url: string | null;
 }
 
-type AppRole = 'customer' | 'cashier' | 'admin';
+type AppRole = 'customer' | 'cashier' | 'admin' | 'exit_guard';
 
 interface AuthContextType {
   user: User | null;
