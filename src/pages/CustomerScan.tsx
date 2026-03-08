@@ -118,7 +118,11 @@ const CustomerScan = () => {
     return false;
   };
 
-  const handleMartSelect = (martId: string) => setSelectedMart(martId);
+  const handleMartSelect = (martId: string) => {
+    const mart = marts.find(m => m.id === martId);
+    if (mart) setMartName(mart.name);
+    setSelectedMart(martId);
+  };
 
   const handleBranchSelect = async (branchId: string) => {
     if (!selectedMart) return;
