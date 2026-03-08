@@ -121,11 +121,16 @@ const AdminDashboard = () => {
 
       const [branchRes, empRes, sessRes] = await Promise.all([
         supabase.from('branches').select('*').eq('mart_id', m.id),
-        supabase.from('employees').select('*').eq('mart_id', m.id),
+        supabase.from('employees').select('*, profiles:user_id(email)').eq('mart_id', m.id),
         supabase.from('sessions').select('id, session_code, state, total_amount, payment_method, created_at, user_id').eq('mart_id', m.id).order('created_at', { ascending: false }),
       ]);
       setBranches((branchRes.data || []) as Branch[]);
-      setEmployees((empRes.data || []) as Employee[]);
+      const emps = (empRes.data || []).map((e: any) => ({
+        ...e,
+        email: e.profiles?.email || null,
+        profiles: undefined,
+      })) as Employee[];
+      setEmployees(emps);
       setAllSessions((sessRes.data || []) as SessionRow[]);
     } else {
       navigate('/register-mart');
