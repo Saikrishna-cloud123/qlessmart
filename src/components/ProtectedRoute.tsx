@@ -23,7 +23,11 @@ export default function ProtectedRoute({ children, requiredRole }: ProtectedRout
   }
 
   if (requiredRole && !hasRole(requiredRole)) {
-    return <Navigate to="/" replace />;
+    // Redirect to the user's appropriate dashboard instead of /
+    if (hasRole('admin')) return <Navigate to="/admin/dashboard" replace />;
+    if (hasRole('cashier')) return <Navigate to="/cashier/dashboard" replace />;
+    if (hasRole('exit_guard')) return <Navigate to="/exit-scan" replace />;
+    return <Navigate to="/dashboard" replace />;
   }
 
   return <>{children}</>;
