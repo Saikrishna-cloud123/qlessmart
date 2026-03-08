@@ -48,7 +48,7 @@ interface SessionRow {
 
 const CashierDashboard = () => {
   const navigate = useNavigate();
-  const { user, profile } = useAuth();
+  const { user, profile, updateProfile, signOut } = useAuth();
   const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [selectedSession, setSelectedSession] = useState<SessionRow | null>(null);
   const [sessionItems, setSessionItems] = useState<CartItem[]>([]);
