@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import {
