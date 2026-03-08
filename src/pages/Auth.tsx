@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Mail, Lock, User, ArrowLeft, Eye, EyeOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,7 +13,8 @@ type AuthMode = 'login' | 'signup' | 'forgot';
 
 const Auth = () => {
   const navigate = useNavigate();
-  const { signIn, signUp, user } = useAuth();
+  const location = useLocation();
+  const { signIn, signUp, user, roles, loading: authLoading } = useAuth();
   const [mode, setMode] = useState<AuthMode>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -21,11 +22,20 @@ const Auth = () => {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
-  // Redirect if already logged in
-  if (user) {
-    navigate('/', { replace: true });
-    return null;
-  }
+  // Redirect if already logged in — role-based
+  useEffect(() => {
+    if (authLoading || !user) return;
+    const from = (location.state as any)?.from;
+    if (from) {
+      navigate(from, { replace: true });
+    } else if (roles.includes('admin')) {
+      navigate('/admin', { replace: true });
+    } else if (roles.includes('cashier')) {
+      navigate('/cashier', { replace: true });
+    } else {
+      navigate('/', { replace: true });
+    }
+  }, [user, roles, authLoading]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -36,7 +46,7 @@ const Auth = () => {
       toast.error(error.message || 'Login failed');
     } else {
       toast.success('Welcome back!');
-      navigate('/');
+      // Redirect handled by useEffect
     }
   };
 
@@ -73,6 +83,9 @@ const Auth = () => {
     }
   };
 
+  // Don't render form if already authed (will redirect via useEffect)
+  if (user && !authLoading) return null;
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
       <motion.div
@@ -81,7 +94,7 @@ const Auth = () => {
         className="glass-card w-full max-w-md rounded-2xl p-8"
       >
         <div className="mb-6 flex flex-col items-center">
-          <img src={ecartLogo} alt="QLess Mart" className="mb-3 h-12 w-12" />
+          <img src={ecartLogo} alt="eCart" className="mb-3 h-12 w-12" />
           <h1 className="text-2xl font-bold text-foreground">
             {mode === 'login' && 'Welcome Back'}
             {mode === 'signup' && 'Create Account'}
@@ -89,7 +102,7 @@ const Auth = () => {
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {mode === 'login' && 'Sign in to start shopping'}
-            {mode === 'signup' && 'Join QLess Mart for queue-free shopping'}
+            {mode === 'signup' && 'Join eCart for queue-free shopping'}
             {mode === 'forgot' && 'Enter your email to receive a reset link'}
           </p>
         </div>
