@@ -3,6 +3,7 @@ import { ShoppingCart, ScanBarcode, Shield, Zap, ArrowRight, Store, LogIn, LogOu
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/useAuth';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import ecartLogo from '@/assets/ecart-logo.png';
 
 const Index = () => {
@@ -47,11 +48,15 @@ const Index = () => {
                 <Button variant="ghost" size="sm" onClick={() => signOut()}>
                   <LogOut className="h-4 w-4 mr-1" /> Sign Out
                 </Button>
+                <ThemeToggle />
               </>
             ) : (
-              <Button variant="ghost" size="sm" onClick={() => navigate('/auth')}>
-                <LogIn className="h-4 w-4 mr-1" /> Sign In
-              </Button>
+              <>
+                <Button variant="ghost" size="sm" onClick={() => navigate('/auth')}>
+                  <LogIn className="h-4 w-4 mr-1" /> Sign In
+                </Button>
+                <ThemeToggle />
+              </>
             )}
           </div>
         </nav>
