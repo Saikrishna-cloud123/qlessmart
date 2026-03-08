@@ -34,7 +34,7 @@ interface Branch {
 }
 interface Employee {
   id: string; employee_name: string; user_id: string;
-  branch_id: string | null; is_active: boolean;
+  branch_id: string | null; is_active: boolean; email?: string | null;
 }
 interface SessionRow {
   id: string; session_code: string; state: string; total_amount: number;
