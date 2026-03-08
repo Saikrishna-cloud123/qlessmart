@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
 import { toast } from 'sonner';
+import type { StoreConfig } from '@/lib/storeConfig';
+import { DEFAULT_STORE_CONFIG } from '@/lib/storeConfig';
 
 export interface CartItem {
   id: string;
@@ -33,6 +35,19 @@ export function useSession() {
   const [session, setSession] = useState<ShoppingSession | null>(null);
   const [items, setItems] = useState<CartItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [storeConfig, setStoreConfig] = useState<StoreConfig>(DEFAULT_STORE_CONFIG);
+
+  // Load store config when session is created/loaded
+  const loadStoreConfig = useCallback(async (martId: string) => {
+    const { data } = await supabase
+      .from('marts')
+      .select('config')
+      .eq('id', martId)
+      .single();
+    if (data?.config && typeof data.config === 'object') {
+      setStoreConfig({ ...DEFAULT_STORE_CONFIG, ...(data.config as any) });
+    }
+  }, []);
 
   // Fetch active session for current user
   const fetchActiveSession = useCallback(async () => {
@@ -48,7 +63,7 @@ export function useSession() {
 
     if (data) {
       setSession(data as ShoppingSession);
-      // Fetch items
+      await loadStoreConfig(data.mart_id);
       const { data: cartItems } = await supabase
         .from('cart_items')
         .select('*')
@@ -59,7 +74,7 @@ export function useSession() {
       setSession(null);
       setItems([]);
     }
-  }, [user]);
+  }, [user, loadStoreConfig]);
 
   useEffect(() => { fetchActiveSession(); }, [fetchActiveSession]);
 
@@ -85,18 +100,25 @@ export function useSession() {
     if (!user) return null;
     setLoading(true);
     try {
+      // Load config for this mart
+      await loadStoreConfig(martId);
+
       const { data, error } = await supabase
         .from('sessions')
         .insert({
           user_id: user.id,
           mart_id: martId,
           branch_id: branchId,
-          session_code: 'TEMP', // trigger will generate
+          session_code: 'TEMP',
         })
         .select()
         .single();
 
       if (error) throw error;
+
+      // Create cart record in carts table
+      await supabase.from('carts').insert({ session_id: data.id });
+
       setSession(data as ShoppingSession);
       setItems([]);
       return data;
@@ -106,10 +128,17 @@ export function useSession() {
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [user, loadStoreConfig]);
 
   const lookupAndAddItem = useCallback(async (barcode: string) => {
     if (!session) return false;
+
+    // Enforce max_items_per_cart
+    if (items.length >= storeConfig.max_items_per_cart) {
+      toast.error(`Cart limit reached (max ${storeConfig.max_items_per_cart} items)`);
+      return false;
+    }
+
     setLoading(true);
     try {
       // Check if already in cart
@@ -162,7 +191,7 @@ export function useSession() {
     } finally {
       setLoading(false);
     }
-  }, [session, items]);
+  }, [session, items, storeConfig.max_items_per_cart]);
 
   const updateQuantity = useCallback(async (itemId: string, quantity: number) => {
     if (!session || session.state !== 'ACTIVE') return;
@@ -185,7 +214,6 @@ export function useSession() {
 
   const recalcTotal = useCallback(async () => {
     if (!session) return;
-    // Re-fetch items to be accurate
     const { data: freshItems } = await supabase
       .from('cart_items')
       .select('*')
@@ -205,15 +233,22 @@ export function useSession() {
 
   const lockCart = useCallback(async () => {
     if (!session || items.length === 0) return;
-    // Generate cart hash
-    const hashData = items.map(i => `${i.barcode}:${i.quantity}`).sort().join('|');
-    let hash = 0;
-    for (let i = 0; i < hashData.length; i++) {
-      hash = ((hash << 5) - hash) + hashData.charCodeAt(i);
-      hash |= 0;
-    }
-    const cartHash = Math.abs(hash).toString(16).toUpperCase().padStart(8, '0');
 
+    // Generate SHA256 cart hash
+    const hashData = items.map(i => `${i.barcode}:${i.quantity}:${i.price}`).sort().join('|');
+    const encoder = new TextEncoder();
+    const data = encoder.encode(hashData);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const cartHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 16).toUpperCase();
+
+    // Update carts table
+    await supabase
+      .from('carts')
+      .update({ cart_hash: cartHash, locked_at: new Date().toISOString() })
+      .eq('session_id', session.id);
+
+    // Update session state
     const { error } = await supabase
       .from('sessions')
       .update({ state: 'LOCKED' as any, cart_hash: cartHash })
@@ -231,12 +266,14 @@ export function useSession() {
   const endSession = useCallback(() => {
     setSession(null);
     setItems([]);
+    setStoreConfig(DEFAULT_STORE_CONFIG);
   }, []);
 
   return {
     session,
     items,
     loading,
+    storeConfig,
     createSession,
     lookupAndAddItem,
     updateQuantity,
