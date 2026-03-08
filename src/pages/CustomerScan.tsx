@@ -14,13 +14,14 @@ import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
-type PaymentMethod = 'cash' | 'card' | 'upi_counter' | 'upi_app';
+type PaymentMethod = 'cash' | 'card' | 'upi_counter' | 'upi_app' | 'razorpay';
 
 const PAYMENT_OPTIONS: { value: PaymentMethod; label: string; icon: any }[] = [
   { value: 'cash', label: 'Cash', icon: Banknote },
   { value: 'card', label: 'Card', icon: CreditCard },
   { value: 'upi_counter', label: 'UPI at Counter', icon: QrCode },
   { value: 'upi_app', label: 'UPI via App', icon: Smartphone },
+  { value: 'razorpay', label: 'Pay Online', icon: CreditCard },
 ];
 
 interface Mart { id: string; name: string; logo_url: string | null; }
