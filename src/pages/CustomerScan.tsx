@@ -84,6 +84,31 @@ const CustomerScan = () => {
       });
   }, [selectedMart]);
 
+  // Phase 5: Parse store QR code format
+  const handleStoreQR = async (qrData: string) => {
+    // Format: store:{mart_id}|branch:{branch_id}
+    const storeMatch = qrData.match(/store:([^|]+)/);
+    const branchMatch = qrData.match(/branch:(.+)/);
+    if (storeMatch && branchMatch) {
+      const martId = storeMatch[1];
+      const branchId = branchMatch[1];
+      // Validate store and branch
+      const { data: martData } = await supabase.from('marts').select('id, name').eq('id', martId).single();
+      const { data: branchData } = await supabase.from('branches').select('id, branch_name').eq('id', branchId).eq('mart_id', martId).single();
+      if (martData && branchData) {
+        const result = await createSession(martId, branchId);
+        if (result) {
+          toast.success(`Welcome to ${martData.name} — ${branchData.branch_name}`);
+          setStep('scan');
+        }
+      } else {
+        toast.error('Invalid store QR code');
+      }
+      return true;
+    }
+    return false;
+  };
+
   const handleMartSelect = (martId: string) => setSelectedMart(martId);
 
   const handleBranchSelect = async (branchId: string) => {
