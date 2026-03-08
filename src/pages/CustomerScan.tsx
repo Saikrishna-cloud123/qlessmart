@@ -1,172 +1,266 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ScanBarcode, Plus, Minus, Trash2, Lock, ShoppingCart, Package, ArrowLeft, Keyboard, Camera } from 'lucide-react';
+import {
+  ScanBarcode, Plus, Minus, Trash2, Lock, ShoppingCart, Package,
+  ArrowLeft, Keyboard, Camera, Store, MapPin, CreditCard, Banknote,
+  Smartphone, QrCode, ChevronRight,
+} from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { useECartStore } from '@/lib/store';
-import { lookupProduct } from '@/lib/products';
+import { useSession } from '@/hooks/useSession';
+import { useAuth } from '@/hooks/useAuth';
+import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+
+type PaymentMethod = 'cash' | 'card' | 'upi_counter' | 'upi_app';
+
+const PAYMENT_OPTIONS: { value: PaymentMethod; label: string; icon: any }[] = [
+  { value: 'cash', label: 'Cash', icon: Banknote },
+  { value: 'card', label: 'Card', icon: CreditCard },
+  { value: 'upi_counter', label: 'UPI at Counter', icon: QrCode },
+  { value: 'upi_app', label: 'UPI via App', icon: Smartphone },
+];
+
+interface Mart { id: string; name: string; logo_url: string | null; }
+interface Branch { id: string; branch_name: string; is_default: boolean; }
 
 const CustomerScan = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const {
-    activeSessionId,
-    createSession,
-    addItem,
-    removeItem,
-    updateQuantity,
-    lockCart,
-    getSession,
-  } = useECartStore();
+    session, items, loading,
+    createSession, lookupAndAddItem, updateQuantity, removeItem,
+    setPaymentMethod, lockCart, endSession,
+  } = useSession();
+
+  // Mart/branch selection state
+  const [marts, setMarts] = useState<Mart[]>([]);
+  const [branches, setBranches] = useState<Branch[]>([]);
+  const [selectedMart, setSelectedMart] = useState<string | null>(null);
+  const [step, setStep] = useState<'select-mart' | 'select-branch' | 'scan' | 'payment' | 'locked' | 'done'>('select-mart');
 
   const [barcode, setBarcode] = useState('');
-  const [loading, setLoading] = useState(false);
   const [scanMode, setScanMode] = useState<'manual' | 'camera'>('manual');
-  const [showQR, setShowQR] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLDivElement>(null);
-  const scannerRef = useRef<any>(null);
 
-  // Create session on mount if none exists
+  // If user already has an active session, jump to scan
   useEffect(() => {
-    if (!activeSessionId) {
-      createSession();
+    if (session) {
+      if (session.state === 'ACTIVE') setStep('scan');
+      else if (session.state === 'LOCKED') setStep('locked');
+      else if (session.state === 'VERIFIED' || session.state === 'PAID' || session.state === 'CLOSED') setStep('done');
     }
-  }, [activeSessionId, createSession]);
+  }, [session]);
 
-  const session = activeSessionId ? getSession(activeSessionId) : undefined;
+  // Load marts
+  useEffect(() => {
+    supabase.from('marts').select('id, name, logo_url').then(({ data }) => {
+      if (data) setMarts(data);
+    });
+  }, []);
 
-  const handleScan = useCallback(async (code: string) => {
-    if (!code.trim() || !activeSessionId) return;
-    setLoading(true);
+  // Load branches when mart selected
+  useEffect(() => {
+    if (!selectedMart) return;
+    supabase.from('branches').select('id, branch_name, is_default')
+      .eq('mart_id', selectedMart)
+      .then(({ data }) => {
+        if (data) {
+          setBranches(data);
+          // Auto-select default branch if only one
+          if (data.length === 1) {
+            handleBranchSelect(data[0].id);
+          } else {
+            setStep('select-branch');
+          }
+        }
+      });
+  }, [selectedMart]);
 
-    try {
-      const product = await lookupProduct(code.trim());
-      if (product) {
-        addItem(activeSessionId, product);
-        toast.success(`Added: ${product.title}`);
-        setBarcode('');
-      } else {
-        toast.error('Product not found. Try another barcode.');
-      }
-    } catch {
-      toast.error('Failed to look up product');
-    } finally {
-      setLoading(false);
-    }
-  }, [activeSessionId, addItem]);
-
-  const handleLockCart = () => {
-    if (!activeSessionId || !session || session.items.length === 0) return;
-    lockCart(activeSessionId);
-    setShowQR(true);
-    toast.success('Cart locked! Show QR to cashier.');
+  const handleMartSelect = (martId: string) => {
+    setSelectedMart(martId);
   };
 
-  // Camera scanner setup
+  const handleBranchSelect = async (branchId: string) => {
+    if (!selectedMart) return;
+    const result = await createSession(selectedMart, branchId);
+    if (result) setStep('scan');
+  };
+
+  const handleScan = useCallback(async (code: string) => {
+    if (!code.trim() || !session) return;
+    setBarcode('');
+    await lookupAndAddItem(code.trim());
+  }, [session, lookupAndAddItem]);
+
+  const handleProceedToPayment = () => setStep('payment');
+
+  const handleLockCart = async (method: PaymentMethod) => {
+    await setPaymentMethod(method);
+    await lockCart();
+    setStep('locked');
+  };
+
+  // Camera scanner
   useEffect(() => {
-    if (scanMode !== 'camera' || !videoRef.current) return;
-
+    if (scanMode !== 'camera' || !videoRef.current || step !== 'scan') return;
     let html5QrCode: any;
-
     const startScanner = async () => {
       const { Html5Qrcode } = await import('html5-qrcode');
       html5QrCode = new Html5Qrcode('barcode-reader');
-      scannerRef.current = html5QrCode;
-
       try {
         await html5QrCode.start(
           { facingMode: 'environment' },
           { fps: 10, qrbox: { width: 250, height: 100 } },
           (decodedText: string) => {
             handleScan(decodedText);
-            // Brief pause after scan
             html5QrCode.pause();
-            setTimeout(() => {
-              try { html5QrCode.resume(); } catch {}
-            }, 2000);
+            setTimeout(() => { try { html5QrCode.resume(); } catch {} }, 2000);
           },
           () => {}
         );
-      } catch (err) {
-        toast.error('Camera access denied. Use manual entry.');
+      } catch {
+        toast.error('Camera access denied');
         setScanMode('manual');
       }
     };
-
     startScanner();
+    return () => { if (html5QrCode) { try { html5QrCode.stop(); } catch {} } };
+  }, [scanMode, handleScan, step]);
 
-    return () => {
-      if (html5QrCode) {
-        try { html5QrCode.stop(); } catch {}
-      }
-    };
-  }, [scanMode, handleScan]);
+  const totalQty = items.reduce((s, i) => s + i.quantity, 0);
 
-  if (!session) return null;
-
-  // QR checkout screen
-  if (showQR && session.state === 'LOCKED') {
+  // === STEP: Select Mart ===
+  if (step === 'select-mart' && !session) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center bg-background p-6 text-center">
-        <motion.div
-          initial={{ scale: 0.8, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          className="glass-card rounded-3xl p-8"
-        >
-          <Lock className="mx-auto mb-4 h-10 w-10 text-primary" />
-          <h2 className="mb-2 text-2xl font-bold text-foreground">Cart Locked</h2>
-          <p className="mb-6 text-sm text-muted-foreground">
-            Show this QR code to the cashier for verification
-          </p>
-          <div className="mx-auto mb-4 inline-block rounded-2xl bg-background p-4 shadow-inner">
-            <QRCodeSVG value={session.id} size={200} level="H" />
-          </div>
-          <p className="mb-1 font-mono text-sm font-bold text-foreground">{session.id}</p>
-          <p className="mb-6 text-xs text-muted-foreground">
-            Cart Hash: {session.cartHash} · {session.items.length} items · ₹{session.totalAmount.toFixed(2)}
-          </p>
-          <div className="flex gap-3">
-            <Button variant="outline" onClick={() => setShowQR(false)}>
-              View Cart
+      <div className="min-h-screen bg-background">
+        <header className="sticky top-0 z-10 border-b border-border bg-card/90 px-4 py-3 backdrop-blur-md">
+          <div className="flex items-center gap-3">
+            <Button variant="ghost" size="icon" onClick={() => navigate('/')}>
+              <ArrowLeft className="h-5 w-5" />
             </Button>
+            <h1 className="text-lg font-bold text-foreground">Select Store</h1>
           </div>
-        </motion.div>
-
-        {session.state === 'LOCKED' && (
-          <p className="mt-6 animate-pulse text-sm text-muted-foreground">
-            Waiting for cashier verification...
-          </p>
-        )}
+        </header>
+        <div className="mx-auto max-w-md p-6">
+          <div className="mb-6 flex flex-col items-center gap-3 py-8">
+            <Store className="h-12 w-12 text-primary" />
+            <p className="text-center text-muted-foreground">Choose a store to start shopping</p>
+          </div>
+          {marts.length === 0 ? (
+            <p className="text-center text-muted-foreground">No stores available yet.</p>
+          ) : (
+            <div className="space-y-3">
+              {marts.map(mart => (
+                <motion.button
+                  key={mart.id}
+                  className="flex w-full items-center gap-4 rounded-xl border border-border bg-card p-4 text-left transition-colors hover:bg-muted/50"
+                  onClick={() => handleMartSelect(mart.id)}
+                  whileTap={{ scale: 0.98 }}
+                >
+                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
+                    <Store className="h-6 w-6 text-primary" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-semibold text-foreground">{mart.name}</p>
+                  </div>
+                  <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                </motion.button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     );
   }
 
-  // Verified / Paid states
-  if (session.state === 'VERIFIED' || session.state === 'PAID') {
+  // === STEP: Select Branch ===
+  if (step === 'select-branch' && !session) {
+    return (
+      <div className="min-h-screen bg-background">
+        <header className="sticky top-0 z-10 border-b border-border bg-card/90 px-4 py-3 backdrop-blur-md">
+          <div className="flex items-center gap-3">
+            <Button variant="ghost" size="icon" onClick={() => { setStep('select-mart'); setSelectedMart(null); }}>
+              <ArrowLeft className="h-5 w-5" />
+            </Button>
+            <h1 className="text-lg font-bold text-foreground">Select Branch</h1>
+          </div>
+        </header>
+        <div className="mx-auto max-w-md p-6 space-y-3">
+          {branches.map(branch => (
+            <motion.button
+              key={branch.id}
+              className="flex w-full items-center gap-4 rounded-xl border border-border bg-card p-4 text-left hover:bg-muted/50"
+              onClick={() => handleBranchSelect(branch.id)}
+              whileTap={{ scale: 0.98 }}
+            >
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+                <MapPin className="h-5 w-5 text-primary" />
+              </div>
+              <div className="flex-1">
+                <p className="font-medium text-foreground">{branch.branch_name}</p>
+                {branch.is_default && (
+                  <span className="text-xs text-primary">Default branch</span>
+                )}
+              </div>
+              <ChevronRight className="h-5 w-5 text-muted-foreground" />
+            </motion.button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // === STEP: Locked — show QR ===
+  if (step === 'locked' && session?.state === 'LOCKED') {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-background p-6 text-center">
-        <motion.div
-          initial={{ scale: 0.8, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          className="glass-card rounded-3xl p-8"
-        >
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-success/10">
-            <ShoppingCart className="h-8 w-8 text-success" />
+        <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="glass-card rounded-3xl p-8 max-w-sm w-full">
+          <Lock className="mx-auto mb-4 h-10 w-10 text-primary" />
+          <h2 className="mb-2 text-2xl font-bold text-foreground">Cart Locked</h2>
+          <p className="mb-6 text-sm text-muted-foreground">Show this QR code to the cashier</p>
+          <div className="mx-auto mb-4 inline-block rounded-2xl bg-background p-4 shadow-inner">
+            <QRCodeSVG value={session.id} size={200} level="H" />
+          </div>
+          <p className="mb-1 font-mono text-xs font-bold text-foreground">{session.session_code}</p>
+          <p className="mb-6 text-xs text-muted-foreground">
+            Hash: {session.cart_hash} · {items.length} items · ₹{session.total_amount.toFixed(2)}
+          </p>
+          <Button variant="outline" onClick={() => setStep('scan')}>View Cart</Button>
+        </motion.div>
+        <p className="mt-6 animate-pulse text-sm text-muted-foreground">Waiting for cashier verification...</p>
+      </div>
+    );
+  }
+
+  // === STEP: Done (VERIFIED / PAID / CLOSED) ===
+  if (step === 'done' || (session && ['VERIFIED', 'PAID', 'CLOSED'].includes(session.state))) {
+    const state = session?.state || 'CLOSED';
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-background p-6 text-center">
+        <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="glass-card rounded-3xl p-8 max-w-sm w-full">
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
+            <ShoppingCart className="h-8 w-8 text-primary" />
           </div>
           <h2 className="mb-2 text-2xl font-bold text-foreground">
-            {session.state === 'VERIFIED' ? 'Cart Verified!' : 'Payment Complete!'}
+            {state === 'VERIFIED' ? 'Cart Verified!' : state === 'PAID' ? 'Payment Complete!' : 'Session Closed'}
           </h2>
           <p className="mb-4 text-sm text-muted-foreground">
-            {session.state === 'VERIFIED'
-              ? `Verified by ${session.verifiedBy}. Please proceed to payment.`
-              : 'Thank you for shopping with us!'}
+            {state === 'VERIFIED' ? 'Proceed to payment at the counter.' :
+             state === 'PAID' ? 'Show receipt QR at the exit.' : 'Thank you for shopping!'}
           </p>
-          <p className="font-mono text-2xl font-bold text-primary">₹{session.totalAmount.toFixed(2)}</p>
-          {session.state === 'PAID' && (
-            <Button className="mt-6" onClick={() => { createSession(); setShowQR(false); }}>
+          <p className="font-mono text-2xl font-bold text-primary">₹{session?.total_amount.toFixed(2)}</p>
+          {state === 'PAID' && session && (
+            <div className="mt-4">
+              <QRCodeSVG value={`receipt:${session.id}`} size={120} level="H" />
+              <p className="mt-2 text-xs text-muted-foreground">Exit receipt QR</p>
+            </div>
+          )}
+          {(state === 'PAID' || state === 'CLOSED') && (
+            <Button className="mt-6" onClick={() => { endSession(); setStep('select-mart'); }}>
               New Shopping Session
             </Button>
           )}
@@ -175,9 +269,48 @@ const CustomerScan = () => {
     );
   }
 
+  // === STEP: Payment Method Selection ===
+  if (step === 'payment') {
+    return (
+      <div className="min-h-screen bg-background">
+        <header className="sticky top-0 z-10 border-b border-border bg-card/90 px-4 py-3 backdrop-blur-md">
+          <div className="flex items-center gap-3">
+            <Button variant="ghost" size="icon" onClick={() => setStep('scan')}>
+              <ArrowLeft className="h-5 w-5" />
+            </Button>
+            <h1 className="text-lg font-bold text-foreground">Select Payment</h1>
+          </div>
+        </header>
+        <div className="mx-auto max-w-md p-6">
+          <div className="mb-6 rounded-xl border-2 border-primary/20 bg-primary/5 p-4 text-center">
+            <p className="text-sm text-muted-foreground">Total</p>
+            <p className="text-3xl font-bold text-primary">₹{session?.total_amount.toFixed(2)}</p>
+            <p className="text-xs text-muted-foreground">{totalQty} items</p>
+          </div>
+          <div className="space-y-3">
+            {PAYMENT_OPTIONS.map(opt => (
+              <motion.button
+                key={opt.value}
+                className="flex w-full items-center gap-4 rounded-xl border border-border bg-card p-4 text-left hover:bg-muted/50 transition-colors"
+                onClick={() => handleLockCart(opt.value)}
+                whileTap={{ scale: 0.98 }}
+              >
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+                  <opt.icon className="h-5 w-5 text-primary" />
+                </div>
+                <span className="font-medium text-foreground">{opt.label}</span>
+                <ChevronRight className="ml-auto h-5 w-5 text-muted-foreground" />
+              </motion.button>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // === STEP: Scan & Cart ===
   return (
     <div className="flex min-h-screen flex-col bg-background">
-      {/* Header */}
       <header className="sticky top-0 z-10 border-b border-border bg-card/90 px-4 py-3 backdrop-blur-md">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -186,19 +319,17 @@ const CustomerScan = () => {
             </Button>
             <div>
               <h1 className="text-lg font-bold text-foreground">Scan & Cart</h1>
-              <p className="text-xs text-muted-foreground font-mono">{session.id}</p>
+              <p className="text-xs text-muted-foreground font-mono">{session?.session_code}</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1">
-              <ShoppingCart className="h-4 w-4 text-primary" />
-              <span className="text-sm font-bold text-primary">{session.items.length}</span>
-            </div>
+          <div className="flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1">
+            <ShoppingCart className="h-4 w-4 text-primary" />
+            <span className="text-sm font-bold text-primary">{items.length}</span>
           </div>
         </div>
       </header>
 
-      {/* Scanner area */}
+      {/* Scanner */}
       <div className="border-b border-border bg-card p-4">
         <div className="flex gap-2 mb-3">
           <Button
@@ -207,8 +338,7 @@ const CustomerScan = () => {
             onClick={() => setScanMode('manual')}
             className={scanMode === 'manual' ? 'gradient-primary border-0 text-primary-foreground' : ''}
           >
-            <Keyboard className="mr-1.5 h-4 w-4" />
-            Manual
+            <Keyboard className="mr-1.5 h-4 w-4" /> Manual
           </Button>
           <Button
             variant={scanMode === 'camera' ? 'default' : 'outline'}
@@ -216,19 +346,11 @@ const CustomerScan = () => {
             onClick={() => setScanMode('camera')}
             className={scanMode === 'camera' ? 'gradient-primary border-0 text-primary-foreground' : ''}
           >
-            <Camera className="mr-1.5 h-4 w-4" />
-            Camera
+            <Camera className="mr-1.5 h-4 w-4" /> Camera
           </Button>
         </div>
-
         {scanMode === 'manual' ? (
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              handleScan(barcode);
-            }}
-            className="flex gap-2"
-          >
+          <form onSubmit={(e) => { e.preventDefault(); handleScan(barcode); }} className="flex gap-2">
             <Input
               ref={inputRef}
               placeholder="Enter barcode number..."
@@ -236,35 +358,21 @@ const CustomerScan = () => {
               onChange={(e) => setBarcode(e.target.value)}
               className="font-mono text-lg"
               autoFocus
+              disabled={session?.state !== 'ACTIVE'}
             />
-            <Button
-              type="submit"
-              disabled={loading || !barcode.trim()}
-              className="gradient-primary border-0 text-primary-foreground"
-            >
-              {loading ? (
-                <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary-foreground/30 border-t-primary-foreground" />
-              ) : (
-                <ScanBarcode className="h-5 w-5" />
-              )}
+            <Button type="submit" disabled={loading || !barcode.trim() || session?.state !== 'ACTIVE'} className="gradient-primary border-0 text-primary-foreground">
+              {loading ? <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary-foreground/30 border-t-primary-foreground" /> : <ScanBarcode className="h-5 w-5" />}
             </Button>
           </form>
         ) : (
-          <div
-            id="barcode-reader"
-            ref={videoRef}
-            className="overflow-hidden rounded-xl"
-          />
+          <div id="barcode-reader" ref={videoRef} className="overflow-hidden rounded-xl" />
         )}
-
-        <p className="mt-2 text-xs text-muted-foreground">
-          Try: 8901138510022, 8904004400250, 8901396315803
-        </p>
+        <p className="mt-2 text-xs text-muted-foreground">Try: 8901138510022, 8904004400250, 8901396315803</p>
       </div>
 
-      {/* Cart items */}
+      {/* Items */}
       <div className="flex-1 overflow-auto p-4">
-        {session.items.length === 0 ? (
+        {items.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <Package className="mb-4 h-16 w-16 text-muted-foreground/30" />
             <p className="text-lg font-medium text-muted-foreground">Your cart is empty</p>
@@ -272,57 +380,40 @@ const CustomerScan = () => {
           </div>
         ) : (
           <AnimatePresence>
-            {session.items.map((item) => (
+            {items.map((item) => (
               <motion.div
-                key={item.product.barcode}
+                key={item.id}
                 initial={{ x: 20, opacity: 0 }}
                 animate={{ x: 0, opacity: 1 }}
                 exit={{ x: -20, opacity: 0 }}
                 className="mb-3 flex items-center gap-3 rounded-xl border border-border bg-card p-3"
               >
-                {item.product.image ? (
-                  <img
-                    src={item.product.image}
-                    alt={item.product.title}
-                    className="h-14 w-14 rounded-lg object-cover"
-                  />
+                {item.image_url ? (
+                  <img src={item.image_url} alt={item.title} className="h-14 w-14 rounded-lg object-cover" />
                 ) : (
                   <div className="flex h-14 w-14 items-center justify-center rounded-lg bg-muted">
                     <Package className="h-6 w-6 text-muted-foreground" />
                   </div>
                 )}
                 <div className="flex-1 min-w-0">
-                  <p className="truncate text-sm font-medium text-foreground">{item.product.title}</p>
-                  <p className="text-xs text-muted-foreground">{item.product.brand || 'Unknown brand'}</p>
-                  <p className="text-sm font-bold text-primary">₹{item.product.price.toFixed(2)}</p>
+                  <p className="truncate text-sm font-medium text-foreground">{item.title}</p>
+                  <p className="text-xs text-muted-foreground">{item.brand || 'Unknown brand'}</p>
+                  <p className="text-sm font-bold text-primary">₹{item.price.toFixed(2)}</p>
                 </div>
-                <div className="flex items-center gap-1">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    onClick={() => updateQuantity(activeSessionId!, item.product.barcode, item.quantity - 1)}
-                  >
-                    <Minus className="h-3.5 w-3.5" />
-                  </Button>
-                  <span className="w-6 text-center text-sm font-bold text-foreground">{item.quantity}</span>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    onClick={() => updateQuantity(activeSessionId!, item.product.barcode, item.quantity + 1)}
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 text-destructive"
-                    onClick={() => removeItem(activeSessionId!, item.product.barcode)}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
+                {session?.state === 'ACTIVE' && (
+                  <div className="flex items-center gap-1">
+                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => updateQuantity(item.id, item.quantity - 1)}>
+                      <Minus className="h-3.5 w-3.5" />
+                    </Button>
+                    <span className="w-6 text-center text-sm font-bold text-foreground">{item.quantity}</span>
+                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => updateQuantity(item.id, item.quantity + 1)}>
+                      <Plus className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => removeItem(item.id)}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                )}
               </motion.div>
             ))}
           </AnimatePresence>
@@ -330,20 +421,14 @@ const CustomerScan = () => {
       </div>
 
       {/* Bottom bar */}
-      {session.items.length > 0 && (
+      {items.length > 0 && session?.state === 'ACTIVE' && (
         <div className="sticky bottom-0 border-t border-border bg-card p-4">
           <div className="mb-3 flex items-center justify-between">
-            <span className="text-sm text-muted-foreground">
-              {session.items.reduce((s, i) => s + i.quantity, 0)} items
-            </span>
-            <span className="text-xl font-bold text-foreground">₹{session.totalAmount.toFixed(2)}</span>
+            <span className="text-sm text-muted-foreground">{totalQty} items</span>
+            <span className="text-xl font-bold text-foreground">₹{session.total_amount.toFixed(2)}</span>
           </div>
-          <Button
-            className="w-full gradient-primary border-0 text-primary-foreground text-base font-semibold py-6"
-            onClick={handleLockCart}
-          >
-            <Lock className="mr-2 h-5 w-5" />
-            Lock Cart & Generate QR
+          <Button className="w-full gradient-primary border-0 text-primary-foreground text-base font-semibold py-6" onClick={handleProceedToPayment}>
+            <Lock className="mr-2 h-5 w-5" /> Proceed to Checkout
           </Button>
         </div>
       )}
