@@ -47,6 +47,7 @@ const CustomerScan = () => {
   const [storeScanMode, setStoreScanMode] = useState<'manual' | 'camera'>('manual');
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [upiLink, setUpiLink] = useState<string | null>(null);
+  const [martName, setMartName] = useState<string>('');
   const inputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLDivElement>(null);
   const storeVideoRef = useRef<HTMLDivElement>(null);
