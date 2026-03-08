@@ -400,6 +400,11 @@ const AdminDashboard = () => {
                           </div>
                           <div>
                             <p className={`font-medium ${emp.is_active ? 'text-foreground' : 'text-muted-foreground line-through'}`}>{emp.employee_name}</p>
+                            {emp.email && (
+                              <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                                <Mail className="h-3 w-3" /> {emp.email}
+                              </p>
+                            )}
                             <p className="text-xs text-muted-foreground">{emp.is_active ? '● Active' : '○ Inactive'}</p>
                           </div>
                         </div>
