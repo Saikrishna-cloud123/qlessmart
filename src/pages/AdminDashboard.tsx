@@ -213,6 +213,7 @@ const AdminDashboard = () => {
     { key: 'branches', label: 'Branches', icon: MapPin },
     { key: 'employees', label: 'Team', icon: Users },
     { key: 'config', label: 'Config', icon: Settings },
+    { key: 'profile', label: 'Profile', icon: User },
   ];
 
   const pageVariants = { initial: { opacity: 0, y: 12 }, animate: { opacity: 1, y: 0 }, exit: { opacity: 0, y: -12 } };
