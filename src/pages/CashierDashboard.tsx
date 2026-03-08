@@ -534,6 +534,8 @@ const CashierDashboard = () => {
             </AnimatePresence>
           </div>
         )}
+        </>
+        )}
       </div>
     </div>
   );
