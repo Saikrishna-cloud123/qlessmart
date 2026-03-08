@@ -614,6 +614,24 @@ const CashierDashboard = () => {
 
           {/* ── Overview Tab ── */}
           <TabsContent value="overview" className="space-y-6">
+            {/* Store info card */}
+            {martName && (
+              <div className="flex items-center gap-4 rounded-xl border border-border bg-card p-4">
+                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
+                  <Store className="h-6 w-6 text-primary" />
+                </div>
+                <div className="flex-1">
+                  <p className="font-semibold text-foreground">{martName}</p>
+                  {branchName && (
+                    <p className="flex items-center gap-1 text-sm text-muted-foreground">
+                      <MapPin className="h-3.5 w-3.5" /> {branchName}
+                      {branchAddress && ` · ${branchAddress}`}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* Summary cards */}
             <div className="grid grid-cols-2 gap-4">
               <div className="rounded-xl border border-border bg-card p-4">
