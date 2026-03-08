@@ -30,34 +30,35 @@ const App = () => (
             <Route path="/" element={<Index />} />
             <Route path="/auth" element={<Auth />} />
             <Route path="/reset-password" element={<ResetPassword />} />
+
+            {/* Customer-only routes */}
             <Route path="/dashboard" element={
-              <ProtectedRoute>
+              <ProtectedRoute requiredRole="customer">
                 <CustomerDashboard />
               </ProtectedRoute>
             } />
             <Route path="/scan" element={
-              <ProtectedRoute>
+              <ProtectedRoute requiredRole="customer">
                 <CustomerScan />
               </ProtectedRoute>
             } />
+            <Route path="/bills" element={
+              <ProtectedRoute requiredRole="customer">
+                <MyBills />
+              </ProtectedRoute>
+            } />
+
+            {/* Cashier-only routes */}
             <Route path="/cashier/dashboard" element={
               <ProtectedRoute requiredRole="cashier">
                 <CashierDashboard />
               </ProtectedRoute>
             } />
+
+            {/* Admin-only routes */}
             <Route path="/admin/dashboard" element={
               <ProtectedRoute requiredRole="admin">
                 <AdminDashboard />
-              </ProtectedRoute>
-            } />
-            <Route path="/bills" element={
-              <ProtectedRoute>
-                <MyBills />
-              </ProtectedRoute>
-            } />
-            <Route path="/exit-scan" element={
-              <ProtectedRoute requiredRole="exit_guard">
-                <ExitScan />
               </ProtectedRoute>
             } />
             <Route path="/register-mart" element={
@@ -65,6 +66,14 @@ const App = () => (
                 <RegisterMart />
               </ProtectedRoute>
             } />
+
+            {/* Exit guard only */}
+            <Route path="/exit-scan" element={
+              <ProtectedRoute requiredRole="exit_guard">
+                <ExitScan />
+              </ProtectedRoute>
+            } />
+
             {/* Legacy route redirects */}
             <Route path="/admin" element={
               <ProtectedRoute requiredRole="admin">

@@ -3,8 +3,12 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Store, MapPin, Users, Plus, ArrowLeft, Settings, Trash2, Save,
   BarChart3, History, TrendingUp, DollarSign, ShoppingCart, Calendar,
-  FileText, User, Mail, Camera, LogOut,
+  FileText, User, Mail, Camera, LogOut, QrCode,
 } from 'lucide-react';
+import StoreConfigEditor from '@/components/StoreConfigEditor';
+import type { StoreConfig } from '@/lib/storeConfig';
+import { DEFAULT_STORE_CONFIG } from '@/lib/storeConfig';
+import { QRCodeSVG } from 'qrcode.react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -403,28 +407,39 @@ const AdminDashboard = () => {
               </div>
             )}
 
-            {/* Config */}
-            {tab === 'config' && (
+            {/* Config — Structured Editor */}
+            {tab === 'config' && mart && (
               <div className="space-y-6">
+                {/* Store QR Codes for branches */}
                 <div className="rounded-xl border border-border bg-card p-4">
-                  <h3 className="mb-3 font-semibold text-foreground">Payment Settings</h3>
-                  <div className="space-y-3">
-                    <Input placeholder="UPI ID (e.g. merchant@upi)" value={upiId} onChange={e => setUpiId(e.target.value)} />
-                    <Input placeholder="Merchant Name" value={merchantName} onChange={e => setMerchantName(e.target.value)} />
-                    <label className="flex items-center gap-3 cursor-pointer">
-                      <input type="checkbox" checked={payFromApp} onChange={e => setPayFromApp(e.target.checked)} className="h-4 w-4 rounded border-input" />
-                      <span className="text-sm text-foreground">Allow customers to pay from app</span>
-                    </label>
+                  <h3 className="mb-3 flex items-center gap-2 font-semibold text-foreground">
+                    <QrCode className="h-4 w-4 text-primary" /> Store Entry QR Codes
+                  </h3>
+                  <p className="mb-3 text-xs text-muted-foreground">Print and place these at your store entrance. Customers scan to start shopping.</p>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    {branches.map(b => (
+                      <div key={b.id} className="flex flex-col items-center gap-2 rounded-lg border border-border p-4">
+                        <QRCodeSVG value={`store:${mart.id}|branch:${b.id}`} size={120} level="H" />
+                        <p className="text-sm font-medium text-foreground">{b.branch_name}</p>
+                        <p className="font-mono text-xs text-muted-foreground break-all">store:{mart.id.slice(0, 8)}…|branch:{b.id.slice(0, 8)}…</p>
+                      </div>
+                    ))}
                   </div>
                 </div>
-                <div className="rounded-xl border border-border bg-card p-4">
-                  <h3 className="mb-3 font-semibold text-foreground">Store Configuration JSON</h3>
-                  <p className="mb-2 text-xs text-muted-foreground">
-                    Includes product_schema, normalization, inventory_request, invoice_schema, invoice_delivery, payment_config, and security settings.
-                  </p>
-                  <textarea className="w-full min-h-[300px] rounded-lg border border-input bg-background p-3 font-mono text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring" value={configJson} onChange={e => setConfigJson(e.target.value)} />
-                </div>
-                <Button onClick={saveConfig} className="gradient-primary border-0 text-primary-foreground"><Save className="mr-2 h-4 w-4" /> Save Configuration</Button>
+
+                <StoreConfigEditor
+                  config={mart.config && typeof mart.config === 'object' ? { ...DEFAULT_STORE_CONFIG, ...(mart.config as any) } : DEFAULT_STORE_CONFIG}
+                  onSave={async (newConfig) => {
+                    const { error } = await supabase.from('marts').update({
+                      config: JSON.parse(JSON.stringify(newConfig)),
+                      upi_id: newConfig.payment_config.upi?.pa || null,
+                      merchant_name: newConfig.payment_config.upi?.pn || null,
+                      customer_pay_from_app: newConfig.payment_config.supported_methods.includes('upi_app') || newConfig.payment_config.supported_methods.includes('razorpay'),
+                    }).eq('id', mart.id);
+                    if (error) throw error;
+                    fetchMart();
+                  }}
+                />
               </div>
             )}
 

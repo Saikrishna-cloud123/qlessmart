@@ -84,6 +84,31 @@ const CustomerScan = () => {
       });
   }, [selectedMart]);
 
+  // Phase 5: Parse store QR code format
+  const handleStoreQR = async (qrData: string) => {
+    // Format: store:{mart_id}|branch:{branch_id}
+    const storeMatch = qrData.match(/store:([^|]+)/);
+    const branchMatch = qrData.match(/branch:(.+)/);
+    if (storeMatch && branchMatch) {
+      const martId = storeMatch[1];
+      const branchId = branchMatch[1];
+      // Validate store and branch
+      const { data: martData } = await supabase.from('marts').select('id, name').eq('id', martId).single();
+      const { data: branchData } = await supabase.from('branches').select('id, branch_name').eq('id', branchId).eq('mart_id', martId).single();
+      if (martData && branchData) {
+        const result = await createSession(martId, branchId);
+        if (result) {
+          toast.success(`Welcome to ${martData.name} — ${branchData.branch_name}`);
+          setStep('scan');
+        }
+      } else {
+        toast.error('Invalid store QR code');
+      }
+      return true;
+    }
+    return false;
+  };
+
   const handleMartSelect = (martId: string) => setSelectedMart(martId);
 
   const handleBranchSelect = async (branchId: string) => {
@@ -213,7 +238,7 @@ const CustomerScan = () => {
 
   const totalQty = items.reduce((s, i) => s + i.quantity, 0);
 
-  // === STEP: Select Mart ===
+  // === STEP: Select Mart (with QR scan option) ===
   if (step === 'select-mart' && !session) {
     return (
       <div className="min-h-screen bg-background">
@@ -226,7 +251,40 @@ const CustomerScan = () => {
           </div>
         </header>
         <div className="mx-auto max-w-md p-6">
-          <div className="mb-6 flex flex-col items-center gap-3 py-8">
+          {/* QR Scan Entry */}
+          <div className="mb-6 rounded-xl border-2 border-primary/20 bg-primary/5 p-4 text-center">
+            <QrCode className="mx-auto mb-2 h-8 w-8 text-primary" />
+            <p className="text-sm font-semibold text-foreground mb-2">Scan Store QR Code</p>
+            <p className="text-xs text-muted-foreground mb-3">Scan the QR at the store entrance to start</p>
+            <div className="flex gap-2">
+              <Input
+                placeholder="Paste store QR data..."
+                value={barcode}
+                onChange={e => setBarcode(e.target.value)}
+                className="font-mono text-xs"
+              />
+              <Button
+                size="sm"
+                className="gradient-primary border-0 text-primary-foreground"
+                disabled={!barcode.trim()}
+                onClick={async () => {
+                  const handled = await handleStoreQR(barcode.trim());
+                  if (!handled) toast.error('Invalid QR format. Expected: store:{id}|branch:{id}');
+                  setBarcode('');
+                }}
+              >
+                <ScanBarcode className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+
+          <div className="mb-4 flex items-center gap-3">
+            <div className="h-px flex-1 bg-border" />
+            <span className="text-xs text-muted-foreground">or select manually</span>
+            <div className="h-px flex-1 bg-border" />
+          </div>
+
+          <div className="mb-6 flex flex-col items-center gap-3 py-4">
             <Store className="h-12 w-12 text-primary" />
             <p className="text-center text-muted-foreground">Choose a store to start shopping</p>
           </div>
