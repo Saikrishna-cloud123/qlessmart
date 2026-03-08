@@ -213,6 +213,48 @@ const CashierDashboard = () => {
     }
   };
 
+  /* ── QR Camera Scanner ── */
+  useEffect(() => {
+    if (!qrScannerActive) return;
+    let html5QrCode: any;
+    const startScanner = async () => {
+      const { Html5Qrcode } = await import('html5-qrcode');
+      html5QrCode = new Html5Qrcode('cashier-qr-reader');
+      try {
+        await html5QrCode.start(
+          { facingMode: 'environment' },
+          { fps: 10, qrbox: { width: 250, height: 250 } },
+          (decodedText: string) => {
+            setScanInput(decodedText);
+            setQrScannerActive(false);
+            // Auto-lookup
+            supabase
+              .from('sessions')
+              .select('*')
+              .or(`id.eq.${decodedText},session_code.eq.${decodedText}`)
+              .maybeSingle()
+              .then(({ data }) => {
+                if (data && data.state === 'LOCKED') {
+                  loadSessionDetail(data as SessionRow);
+                } else if (data) {
+                  toast.error(`Session state is ${data.state}`);
+                } else {
+                  toast.error('Session not found');
+                }
+              });
+            html5QrCode.pause();
+          },
+          () => {}
+        );
+      } catch (err) {
+        toast.error('Camera access denied');
+        setQrScannerActive(false);
+      }
+    };
+    startScanner();
+    return () => { if (html5QrCode) { try { html5QrCode.stop(); } catch {} } };
+  }, [qrScannerActive, loadSessionDetail]);
+
   /* ── Cart actions ── */
   const verifyCart = async () => {
     if (!selectedSession || !user) return;
