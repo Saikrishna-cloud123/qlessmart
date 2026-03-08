@@ -594,7 +594,9 @@ const CustomerScan = () => {
               <ArrowLeft className="h-5 w-5" />
             </Button>
             <div>
-              <h1 className="text-lg font-bold text-foreground">Scan & Cart</h1>
+              <h1 className="text-lg font-bold text-foreground">
+                {martName || 'Scan & Cart'}
+              </h1>
               <p className="text-xs text-muted-foreground font-mono">{session?.session_code}</p>
             </div>
           </div>
@@ -606,6 +608,11 @@ const CustomerScan = () => {
               <ShoppingCart className="h-4 w-4 text-primary" />
               <span className="text-sm font-bold text-primary">{items.length}</span>
             </div>
+            {session?.state === 'ACTIVE' && (
+              <Button variant="ghost" size="icon" className="text-destructive" onClick={cancelSession} title="Cancel cart">
+                <XCircle className="h-5 w-5" />
+              </Button>
+            )}
           </div>
         </div>
       </header>
