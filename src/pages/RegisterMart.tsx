@@ -31,7 +31,7 @@ type Step = 'name' | 'branch' | 'config' | 'done';
 
 const RegisterMart = () => {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, refreshRoles } = useAuth();
   const [step, setStep] = useState<Step>('name');
   const [loading, setLoading] = useState(false);
   const [martId, setMartId] = useState<string | null>(null);
