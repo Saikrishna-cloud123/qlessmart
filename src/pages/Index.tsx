@@ -96,8 +96,11 @@ const Index = () => {
               size="lg"
               variant="outline"
               className="px-8 text-base"
-              onClick={() => navigate('/cashier')}
+              onClick={() => navigate('/register-mart')}
             >
+              <Store className="mr-2 h-5 w-5" />
+              Register Your Store
+            </Button>
               <Store className="mr-2 h-5 w-5" />
               Cashier Dashboard
             </Button>

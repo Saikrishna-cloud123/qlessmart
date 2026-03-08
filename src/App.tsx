@@ -54,6 +54,11 @@ const App = () => (
                 <ExitScan />
               </ProtectedRoute>
             } />
+            <Route path="/register-mart" element={
+              <ProtectedRoute>
+                <RegisterMart />
+              </ProtectedRoute>
+            } />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </AuthProvider>
