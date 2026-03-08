@@ -3,8 +3,12 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Store, MapPin, Users, Plus, ArrowLeft, Settings, Trash2, Save,
   BarChart3, History, TrendingUp, DollarSign, ShoppingCart, Calendar,
-  FileText, User, Mail, Camera, LogOut,
+  FileText, User, Mail, Camera, LogOut, QrCode,
 } from 'lucide-react';
+import StoreConfigEditor from '@/components/StoreConfigEditor';
+import type { StoreConfig } from '@/lib/storeConfig';
+import { DEFAULT_STORE_CONFIG } from '@/lib/storeConfig';
+import { QRCodeSVG } from 'qrcode.react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
