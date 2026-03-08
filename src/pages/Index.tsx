@@ -1,7 +1,8 @@
 import { motion } from 'framer-motion';
-import { ShoppingCart, ScanBarcode, Shield, Zap, ArrowRight, Store } from 'lucide-react';
+import { ShoppingCart, ScanBarcode, Shield, Zap, ArrowRight, Store, LogIn, LogOut, User } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
+import { useAuth } from '@/hooks/useAuth';
 import ecartLogo from '@/assets/ecart-logo.png';
 
 const Index = () => {
