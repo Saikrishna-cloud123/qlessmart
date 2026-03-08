@@ -1,1 +1,4 @@
 project_id = "dbqlqamhdgrggcizjgal"
+
+[functions.inventory-lookup]
+verify_jwt = false
