@@ -77,7 +77,8 @@ const AdminDashboard = () => {
       const { data: e } = await supabase.from('employees').select('*').eq('mart_id', data.id);
       setEmployees((e || []) as Employee[]);
     } else {
-      setCreateMode(true);
+      // No mart found — redirect to registration
+      navigate('/register-mart');
     }
     setLoading(false);
   }, [user]);
