@@ -134,6 +134,38 @@ export type Database = {
           },
         ]
       }
+      carts: {
+        Row: {
+          cart_hash: string | null
+          created_at: string
+          id: string
+          locked_at: string | null
+          session_id: string
+        }
+        Insert: {
+          cart_hash?: string | null
+          created_at?: string
+          id?: string
+          locked_at?: string | null
+          session_id: string
+        }
+        Update: {
+          cart_hash?: string | null
+          created_at?: string
+          id?: string
+          locked_at?: string | null
+          session_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "carts_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: true
+            referencedRelation: "sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       employees: {
         Row: {
           branch_id: string | null
