@@ -8,6 +8,7 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import ResetPassword from "./pages/ResetPassword";
+import CustomerDashboard from "./pages/CustomerDashboard";
 import CustomerScan from "./pages/CustomerScan";
 import CashierDashboard from "./pages/CashierDashboard";
 import AdminDashboard from "./pages/AdminDashboard";
@@ -29,6 +30,11 @@ const App = () => (
             <Route path="/" element={<Index />} />
             <Route path="/auth" element={<Auth />} />
             <Route path="/reset-password" element={<ResetPassword />} />
+            <Route path="/dashboard" element={
+              <ProtectedRoute>
+                <CustomerDashboard />
+              </ProtectedRoute>
+            } />
             <Route path="/scan" element={
               <ProtectedRoute>
                 <CustomerScan />

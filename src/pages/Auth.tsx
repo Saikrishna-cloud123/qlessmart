@@ -33,7 +33,7 @@ const Auth = () => {
     } else if (roles.includes('cashier')) {
       navigate('/cashier', { replace: true });
     } else {
-      navigate('/', { replace: true });
+      navigate('/dashboard', { replace: true });
     }
   }, [user, roles, authLoading]);
 

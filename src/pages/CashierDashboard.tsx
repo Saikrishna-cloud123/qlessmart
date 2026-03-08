@@ -4,13 +4,16 @@ import {
   Shield, ShieldCheck, ShieldX, Package, ArrowLeft,
   CheckCircle2, XCircle, CreditCard, Receipt, Clock,
   ScanBarcode, Plus, Minus, User, Banknote, QrCode, Smartphone,
+  Settings, Save, Mail, LogOut, Camera,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import type { CartItem } from '@/hooks/useSession';
 
 const STATE_COLORS: Record<string, string> = {
@@ -45,7 +48,7 @@ interface SessionRow {
 
 const CashierDashboard = () => {
   const navigate = useNavigate();
-  const { user, profile } = useAuth();
+  const { user, profile, updateProfile, signOut } = useAuth();
   const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [selectedSession, setSelectedSession] = useState<SessionRow | null>(null);
   const [sessionItems, setSessionItems] = useState<CartItem[]>([]);
@@ -53,6 +56,10 @@ const CashierDashboard = () => {
   const [scanInput, setScanInput] = useState('');
   const [addBarcode, setAddBarcode] = useState('');
   const [addingItem, setAddingItem] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [profileName, setProfileName] = useState(profile?.display_name || '');
+  const [profileAvatar, setProfileAvatar] = useState(profile?.avatar_url || '');
+  const [savingProfile, setSavingProfile] = useState(false);
 
   // Get employee's mart
   const [employeeMartId, setEmployeeMartId] = useState<string | null>(null);
@@ -407,12 +414,63 @@ const CashierDashboard = () => {
             <h1 className="text-xl font-bold text-foreground">Cashier Dashboard</h1>
             <p className="text-sm text-muted-foreground">Welcome, {profile?.display_name || 'Cashier'}</p>
           </div>
-          <Button variant="ghost" size="sm" onClick={() => navigate('/')}>
-            <ArrowLeft className="mr-1 h-4 w-4" /> Exit
-          </Button>
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
+            <Button variant="ghost" size="sm" onClick={() => setShowSettings(!showSettings)}>
+              <Settings className="mr-1 h-4 w-4" /> {showSettings ? 'Sessions' : 'Settings'}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => navigate('/')}>
+              <ArrowLeft className="mr-1 h-4 w-4" /> Home
+            </Button>
+          </div>
         </div>
       </header>
       <div className="mx-auto max-w-2xl p-6">
+        {showSettings ? (
+          <div className="space-y-6">
+            <div className="flex flex-col items-center gap-3">
+              {profileAvatar ? (
+                <img src={profileAvatar} alt="" className="h-20 w-20 rounded-full object-cover border-2 border-border" />
+              ) : (
+                <div className="flex h-20 w-20 items-center justify-center rounded-full bg-primary/10 border-2 border-border">
+                  <User className="h-10 w-10 text-primary" />
+                </div>
+              )}
+            </div>
+            <div className="rounded-xl border border-border bg-card p-6 space-y-4">
+              <h3 className="font-semibold text-foreground flex items-center gap-2"><User className="h-4 w-4" /> My Profile</h3>
+              <div>
+                <Label className="text-sm font-medium text-foreground">Display Name</Label>
+                <Input value={profileName} onChange={e => setProfileName(e.target.value)} placeholder="Your name" className="mt-1" />
+              </div>
+              <div>
+                <Label className="text-sm font-medium text-foreground">Email</Label>
+                <div className="mt-1 flex items-center gap-2 rounded-md border border-input bg-muted px-3 py-2 text-sm text-muted-foreground">
+                  <Mail className="h-4 w-4" /> {user?.email}
+                </div>
+              </div>
+              <div>
+                <Label className="text-sm font-medium text-foreground">Avatar URL</Label>
+                <Input value={profileAvatar} onChange={e => setProfileAvatar(e.target.value)} placeholder="https://..." className="mt-1" />
+              </div>
+              <Button disabled={savingProfile} className="w-full gradient-primary border-0 text-primary-foreground" onClick={async () => {
+                setSavingProfile(true);
+                const { error } = await updateProfile({ display_name: profileName.trim() || null, avatar_url: profileAvatar.trim() || null });
+                setSavingProfile(false);
+                if (error) toast.error('Failed to save'); else toast.success('Profile updated!');
+              }}>
+                <Save className="mr-2 h-4 w-4" /> Save Profile
+              </Button>
+            </div>
+            <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-6">
+              <h3 className="mb-3 font-semibold text-destructive">Account</h3>
+              <Button variant="destructive" size="sm" onClick={() => signOut()}>
+                <LogOut className="mr-2 h-4 w-4" /> Sign Out
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <>
         <form onSubmit={(e) => { e.preventDefault(); handleScanQR(); }} className="mb-6 flex gap-2">
           <Input placeholder="Scan or enter session code..." value={scanInput} onChange={(e) => setScanInput(e.target.value)} className="font-mono" />
           <Button type="submit" className="gradient-primary border-0 text-primary-foreground">
@@ -475,6 +533,8 @@ const CashierDashboard = () => {
               ))}
             </AnimatePresence>
           </div>
+        )}
+        </>
         )}
       </div>
     </div>
