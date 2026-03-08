@@ -5,7 +5,7 @@ import {
   CheckCircle2, XCircle, CreditCard, Receipt, Clock,
   ScanBarcode, Plus, Minus, User, Banknote, QrCode, Smartphone,
   Settings, Save, Mail, LogOut, Camera, BarChart3, LayoutDashboard,
-  TrendingUp, IndianRupee, FileText, Activity,
+  TrendingUp, IndianRupee, FileText, Activity, Store, MapPin, Video, VideoOff,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -72,6 +72,10 @@ const CashierDashboard = () => {
   const [savingProfile, setSavingProfile] = useState(false);
 
   const [employeeMartId, setEmployeeMartId] = useState<string | null>(null);
+  const [martName, setMartName] = useState('');
+  const [branchName, setBranchName] = useState('');
+  const [branchAddress, setBranchAddress] = useState('');
+  const [qrScannerActive, setQrScannerActive] = useState(false);
 
   // Analytics state
   const [todaysBills, setTodaysBills] = useState(0);
@@ -81,9 +85,21 @@ const CashierDashboard = () => {
 
   useEffect(() => {
     if (!user) return;
-    supabase.from('employees').select('mart_id').eq('user_id', user.id).eq('is_active', true).limit(1).single()
-      .then(({ data }) => {
-        if (data) setEmployeeMartId(data.mart_id);
+    supabase.from('employees').select('mart_id, branch_id').eq('user_id', user.id).eq('is_active', true).limit(1).single()
+      .then(async ({ data }) => {
+        if (data) {
+          setEmployeeMartId(data.mart_id);
+          // Load mart & branch details
+          const { data: mart } = await supabase.from('marts').select('name, logo_url').eq('id', data.mart_id).maybeSingle();
+          if (mart) setMartName(mart.name);
+          if (data.branch_id) {
+            const { data: branch } = await supabase.from('branches').select('branch_name, address').eq('id', data.branch_id).maybeSingle();
+            if (branch) {
+              setBranchName(branch.branch_name);
+              setBranchAddress(branch.address || '');
+            }
+          }
+        }
       });
   }, [user]);
 
@@ -196,6 +212,48 @@ const CashierDashboard = () => {
       toast.error('Session not found');
     }
   };
+
+  /* ── QR Camera Scanner ── */
+  useEffect(() => {
+    if (!qrScannerActive) return;
+    let html5QrCode: any;
+    const startScanner = async () => {
+      const { Html5Qrcode } = await import('html5-qrcode');
+      html5QrCode = new Html5Qrcode('cashier-qr-reader');
+      try {
+        await html5QrCode.start(
+          { facingMode: 'environment' },
+          { fps: 10, qrbox: { width: 250, height: 250 } },
+          (decodedText: string) => {
+            setScanInput(decodedText);
+            setQrScannerActive(false);
+            // Auto-lookup
+            supabase
+              .from('sessions')
+              .select('*')
+              .or(`id.eq.${decodedText},session_code.eq.${decodedText}`)
+              .maybeSingle()
+              .then(({ data }) => {
+                if (data && data.state === 'LOCKED') {
+                  loadSessionDetail(data as SessionRow);
+                } else if (data) {
+                  toast.error(`Session state is ${data.state}`);
+                } else {
+                  toast.error('Session not found');
+                }
+              });
+            html5QrCode.pause();
+          },
+          () => {}
+        );
+      } catch (err) {
+        toast.error('Camera access denied');
+        setQrScannerActive(false);
+      }
+    };
+    startScanner();
+    return () => { if (html5QrCode) { try { html5QrCode.stop(); } catch {} } };
+  }, [qrScannerActive, loadSessionDetail]);
 
   /* ── Cart actions ── */
   const verifyCart = async () => {
@@ -479,7 +537,19 @@ const CashierDashboard = () => {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold text-foreground">Cashier Dashboard</h1>
-            <p className="text-sm text-muted-foreground">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              {martName && (
+                <span className="flex items-center gap-1">
+                  <Store className="h-3.5 w-3.5" /> {martName}
+                </span>
+              )}
+              {branchName && (
+                <span className="flex items-center gap-1">
+                  <MapPin className="h-3.5 w-3.5" /> {branchName}
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground mt-0.5">
               {lockedSessions.length} pending · {verifiedSessions.length} verified · {paidSessions.length} paid today
             </p>
           </div>
@@ -544,6 +614,24 @@ const CashierDashboard = () => {
 
           {/* ── Overview Tab ── */}
           <TabsContent value="overview" className="space-y-6">
+            {/* Store info card */}
+            {martName && (
+              <div className="flex items-center gap-4 rounded-xl border border-border bg-card p-4">
+                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
+                  <Store className="h-6 w-6 text-primary" />
+                </div>
+                <div className="flex-1">
+                  <p className="font-semibold text-foreground">{martName}</p>
+                  {branchName && (
+                    <p className="flex items-center gap-1 text-sm text-muted-foreground">
+                      <MapPin className="h-3.5 w-3.5" /> {branchName}
+                      {branchAddress && ` · ${branchAddress}`}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* Summary cards */}
             <div className="grid grid-cols-2 gap-4">
               <div className="rounded-xl border border-border bg-card p-4">
@@ -582,11 +670,16 @@ const CashierDashboard = () => {
 
             {/* Quick scan */}
             <div className="rounded-xl border border-border bg-card p-4">
-              <h3 className="mb-3 flex items-center gap-2 font-semibold text-foreground">
-                <ScanBarcode className="h-5 w-5 text-primary" /> Quick Scan
-              </h3>
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="flex items-center gap-2 font-semibold text-foreground">
+                  <ScanBarcode className="h-5 w-5 text-primary" /> Quick Scan
+                </h3>
+                <Button variant="outline" size="sm" onClick={() => { setActiveTab('billing'); setQrScannerActive(true); }}>
+                  <Camera className="mr-2 h-4 w-4" /> Camera
+                </Button>
+              </div>
               <form onSubmit={(e) => { e.preventDefault(); handleScanQR(); }} className="flex gap-2">
-                <Input placeholder="Scan QR or enter session code..." value={scanInput} onChange={(e) => setScanInput(e.target.value)} className="font-mono" />
+                <Input placeholder="Enter session code..." value={scanInput} onChange={(e) => setScanInput(e.target.value)} className="font-mono" />
                 <Button type="submit" disabled={!scanInput.trim()} className="gradient-primary border-0 text-primary-foreground">
                   <ScanBarcode className="h-5 w-5" />
                 </Button>
@@ -637,13 +730,40 @@ const CashierDashboard = () => {
 
           {/* ── Billing Tab ── */}
           <TabsContent value="billing" className="space-y-6">
-            {/* QR Scanner */}
+            {/* QR Camera Scanner */}
             <div className="rounded-xl border border-border bg-card p-4">
-              <h3 className="mb-3 flex items-center gap-2 font-semibold text-foreground">
-                <ScanBarcode className="h-5 w-5 text-primary" /> Scan Customer QR
-              </h3>
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="flex items-center gap-2 font-semibold text-foreground">
+                  <ScanBarcode className="h-5 w-5 text-primary" /> Scan Customer QR
+                </h3>
+                <Button
+                  variant={qrScannerActive ? 'destructive' : 'outline'}
+                  size="sm"
+                  onClick={() => setQrScannerActive(!qrScannerActive)}
+                >
+                  {qrScannerActive ? <VideoOff className="mr-2 h-4 w-4" /> : <Camera className="mr-2 h-4 w-4" />}
+                  {qrScannerActive ? 'Stop Camera' : 'Open Camera'}
+                </Button>
+              </div>
+
+              {/* Camera preview */}
+              <AnimatePresence>
+                {qrScannerActive && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="mb-3 overflow-hidden rounded-lg"
+                  >
+                    <div id="cashier-qr-reader" className="w-full rounded-lg overflow-hidden" />
+                    <p className="mt-2 text-center text-xs text-muted-foreground">Point camera at customer's QR code</p>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* Manual input fallback */}
               <form onSubmit={(e) => { e.preventDefault(); handleScanQR(); }} className="flex gap-2">
-                <Input placeholder="Scan QR or enter session ID..." value={scanInput} onChange={(e) => setScanInput(e.target.value)} className="font-mono" />
+                <Input placeholder="Or enter session code manually..." value={scanInput} onChange={(e) => setScanInput(e.target.value)} className="font-mono" />
                 <Button type="submit" disabled={!scanInput.trim()} className="gradient-primary border-0 text-primary-foreground">
                   <ScanBarcode className="h-5 w-5" />
                 </Button>
