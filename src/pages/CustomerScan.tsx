@@ -104,6 +104,7 @@ const CustomerScan = () => {
       const { data: martData } = await supabase.from('marts').select('id, name').eq('id', martId).single();
       const { data: branchData } = await supabase.from('branches').select('id, branch_name').eq('id', branchId).eq('mart_id', martId).single();
       if (martData && branchData) {
+        setMartName(martData.name);
         const result = await createSession(martId, branchId);
         if (result) {
           toast.success(`Welcome to ${martData.name} — ${branchData.branch_name}`);
