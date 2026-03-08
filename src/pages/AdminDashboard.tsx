@@ -4,6 +4,7 @@ import {
   Store, MapPin, Users, Plus, ArrowLeft, Settings, Trash2, Save,
   BarChart3, History, TrendingUp, DollarSign, ShoppingCart, Calendar,
   FileText, Package, Upload, Search, Edit2, Check, X,
+  User, Mail, Camera, LogOut,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
