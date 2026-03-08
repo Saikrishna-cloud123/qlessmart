@@ -670,11 +670,16 @@ const CashierDashboard = () => {
 
             {/* Quick scan */}
             <div className="rounded-xl border border-border bg-card p-4">
-              <h3 className="mb-3 flex items-center gap-2 font-semibold text-foreground">
-                <ScanBarcode className="h-5 w-5 text-primary" /> Quick Scan
-              </h3>
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="flex items-center gap-2 font-semibold text-foreground">
+                  <ScanBarcode className="h-5 w-5 text-primary" /> Quick Scan
+                </h3>
+                <Button variant="outline" size="sm" onClick={() => { setActiveTab('billing'); setQrScannerActive(true); }}>
+                  <Camera className="mr-2 h-4 w-4" /> Camera
+                </Button>
+              </div>
               <form onSubmit={(e) => { e.preventDefault(); handleScanQR(); }} className="flex gap-2">
-                <Input placeholder="Scan QR or enter session code..." value={scanInput} onChange={(e) => setScanInput(e.target.value)} className="font-mono" />
+                <Input placeholder="Enter session code..." value={scanInput} onChange={(e) => setScanInput(e.target.value)} className="font-mono" />
                 <Button type="submit" disabled={!scanInput.trim()} className="gradient-primary border-0 text-primary-foreground">
                   <ScanBarcode className="h-5 w-5" />
                 </Button>
