@@ -121,16 +121,19 @@ const AdminDashboard = () => {
 
       const [branchRes, empRes, sessRes] = await Promise.all([
         supabase.from('branches').select('*').eq('mart_id', m.id),
-        supabase.from('employees').select('*, profiles:user_id(email)').eq('mart_id', m.id),
+        supabase.from('employees').select('*').eq('mart_id', m.id),
         supabase.from('sessions').select('id, session_code, state, total_amount, payment_method, created_at, user_id').eq('mart_id', m.id).order('created_at', { ascending: false }),
       ]);
       setBranches((branchRes.data || []) as Branch[]);
-      const emps = (empRes.data || []).map((e: any) => ({
-        ...e,
-        email: e.profiles?.email || null,
-        profiles: undefined,
-      })) as Employee[];
-      setEmployees(emps);
+      const rawEmps = (empRes.data || []) as Employee[];
+      // Fetch emails from profiles for each employee
+      if (rawEmps.length > 0) {
+        const userIds = rawEmps.map(e => e.user_id);
+        const { data: profiles } = await supabase.from('profiles').select('id, email').in('id', userIds);
+        const emailMap = new Map((profiles || []).map((p: any) => [p.id, p.email]));
+        rawEmps.forEach(e => { e.email = emailMap.get(e.user_id) || null; });
+      }
+      setEmployees(rawEmps);
       setAllSessions((sessRes.data || []) as SessionRow[]);
     } else {
       navigate('/register-mart');
