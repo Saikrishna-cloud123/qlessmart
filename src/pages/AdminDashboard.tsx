@@ -26,7 +26,7 @@ interface SessionRow { id: string; session_code: string; state: string; total_am
 interface AuditLog { id: string; action: string; user_id: string | null; session_id: string | null; details: any; created_at: string; }
 interface Product { id: string; branch_id: string; barcode: string; title: string; brand: string | null; category: string | null; price: number; stock: number; image_url: string | null; is_active: boolean; }
 
-type Tab = 'details' | 'branches' | 'employees' | 'config' | 'analytics' | 'history' | 'audit' | 'inventory';
+type Tab = 'details' | 'branches' | 'employees' | 'config' | 'analytics' | 'history' | 'audit' | 'inventory' | 'profile';
 
 const CHART_COLORS = ['hsl(160, 60%, 30%)', 'hsl(38, 92%, 55%)', 'hsl(200, 70%, 50%)', 'hsl(280, 60%, 55%)', 'hsl(0, 72%, 51%)'];
 const STATE_BADGE: Record<string, string> = {
