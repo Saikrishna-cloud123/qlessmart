@@ -61,13 +61,6 @@ const AdminDashboard = () => {
   // Audit
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
 
-  // Inventory
-  const [products, setProducts] = useState<Product[]>([]);
-  const [selectedBranch, setSelectedBranch] = useState<string>('');
-  const [productSearch, setProductSearch] = useState('');
-  const [newProduct, setNewProduct] = useState({ barcode: '', title: '', brand: '', category: '', price: '', stock: '', image_url: '' });
-  const [editingProduct, setEditingProduct] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<Partial<Product>>({});
 
   // Profile settings
   const [profileName, setProfileName] = useState(authProfile?.display_name || '');
