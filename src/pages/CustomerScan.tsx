@@ -239,6 +239,51 @@ const CustomerScan = () => {
   // === STEP: Done (VERIFIED / PAID / CLOSED) ===
   if (step === 'done' || (session && ['VERIFIED', 'PAID', 'CLOSED'].includes(session.state))) {
     const state = session?.state || 'CLOSED';
+
+    // For VERIFIED + upi_app or razorpay, show in-app payment
+    if (state === 'VERIFIED' && session) {
+      return (
+        <div className="flex min-h-screen flex-col items-center justify-center bg-background p-6 text-center">
+          <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="glass-card rounded-3xl p-8 max-w-sm w-full">
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
+              <ShoppingCart className="h-8 w-8 text-primary" />
+            </div>
+            <h2 className="mb-2 text-2xl font-bold text-foreground">Cart Verified!</h2>
+            <p className="mb-2 text-sm text-muted-foreground">
+              {session.payment_method === 'upi_app' || session.payment_method === 'razorpay'
+                ? 'Complete payment to proceed.'
+                : 'Proceed to payment at the counter.'}
+            </p>
+            <p className="font-mono text-2xl font-bold text-primary mb-4">₹{session.total_amount.toFixed(2)}</p>
+
+            {/* Razorpay pay button */}
+            {(session.payment_method === 'upi_app' || session.payment_method === 'razorpay') && (
+              <Button
+                className="w-full gradient-primary border-0 text-primary-foreground py-5 text-base mb-3"
+                onClick={() => initiateRazorpay()}
+                disabled={paymentLoading}
+              >
+                {paymentLoading ? (
+                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary-foreground/30 border-t-primary-foreground" />
+                ) : (
+                  <><CreditCard className="mr-2 h-5 w-5" /> Pay Now</>
+                )}
+              </Button>
+            )}
+
+            {/* UPI intent link */}
+            {session.payment_method === 'upi_app' && upiLink && (
+              <a href={upiLink} className="block text-center text-sm text-primary underline mb-3">
+                Open UPI App
+              </a>
+            )}
+
+            <p className="animate-pulse text-xs text-muted-foreground">Waiting for payment confirmation...</p>
+          </motion.div>
+        </div>
+      );
+    }
+
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-background p-6 text-center">
         <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="glass-card rounded-3xl p-8 max-w-sm w-full">
@@ -246,11 +291,10 @@ const CustomerScan = () => {
             <ShoppingCart className="h-8 w-8 text-primary" />
           </div>
           <h2 className="mb-2 text-2xl font-bold text-foreground">
-            {state === 'VERIFIED' ? 'Cart Verified!' : state === 'PAID' ? 'Payment Complete!' : 'Session Closed'}
+            {state === 'PAID' ? 'Payment Complete!' : 'Session Closed'}
           </h2>
           <p className="mb-4 text-sm text-muted-foreground">
-            {state === 'VERIFIED' ? 'Proceed to payment at the counter.' :
-             state === 'PAID' ? 'Show receipt QR at the exit.' : 'Thank you for shopping!'}
+            {state === 'PAID' ? 'Show receipt QR at the exit.' : 'Thank you for shopping!'}
           </p>
           <p className="font-mono text-2xl font-bold text-primary">₹{session?.total_amount.toFixed(2)}</p>
           {state === 'PAID' && session && (
@@ -260,9 +304,14 @@ const CustomerScan = () => {
             </div>
           )}
           {(state === 'PAID' || state === 'CLOSED') && (
-            <Button className="mt-6" onClick={() => { endSession(); setStep('select-mart'); }}>
-              New Shopping Session
-            </Button>
+            <div className="mt-6 flex flex-col gap-2">
+              <Button onClick={() => navigate('/bills')}>
+                <Receipt className="mr-2 h-4 w-4" /> View Invoice
+              </Button>
+              <Button variant="outline" onClick={() => { endSession(); setStep('select-mart'); }}>
+                New Shopping Session
+              </Button>
+            </div>
           )}
         </motion.div>
       </div>
