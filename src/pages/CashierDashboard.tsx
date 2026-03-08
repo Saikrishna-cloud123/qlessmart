@@ -72,6 +72,10 @@ const CashierDashboard = () => {
   const [savingProfile, setSavingProfile] = useState(false);
 
   const [employeeMartId, setEmployeeMartId] = useState<string | null>(null);
+  const [martName, setMartName] = useState('');
+  const [branchName, setBranchName] = useState('');
+  const [branchAddress, setBranchAddress] = useState('');
+  const [qrScannerActive, setQrScannerActive] = useState(false);
 
   // Analytics state
   const [todaysBills, setTodaysBills] = useState(0);
@@ -81,9 +85,21 @@ const CashierDashboard = () => {
 
   useEffect(() => {
     if (!user) return;
-    supabase.from('employees').select('mart_id').eq('user_id', user.id).eq('is_active', true).limit(1).single()
-      .then(({ data }) => {
-        if (data) setEmployeeMartId(data.mart_id);
+    supabase.from('employees').select('mart_id, branch_id').eq('user_id', user.id).eq('is_active', true).limit(1).single()
+      .then(async ({ data }) => {
+        if (data) {
+          setEmployeeMartId(data.mart_id);
+          // Load mart & branch details
+          const { data: mart } = await supabase.from('marts').select('name, logo_url').eq('id', data.mart_id).maybeSingle();
+          if (mart) setMartName(mart.name);
+          if (data.branch_id) {
+            const { data: branch } = await supabase.from('branches').select('branch_name, address').eq('id', data.branch_id).maybeSingle();
+            if (branch) {
+              setBranchName(branch.branch_name);
+              setBranchAddress(branch.address || '');
+            }
+          }
+        }
       });
   }, [user]);
 
