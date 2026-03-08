@@ -11,6 +11,8 @@ import ResetPassword from "./pages/ResetPassword";
 import CustomerScan from "./pages/CustomerScan";
 import CashierDashboard from "./pages/CashierDashboard";
 import AdminDashboard from "./pages/AdminDashboard";
+import MyBills from "./pages/MyBills";
+import ExitScan from "./pages/ExitScan";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
