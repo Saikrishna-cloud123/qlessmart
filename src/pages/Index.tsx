@@ -3,6 +3,7 @@ import { ShoppingCart, ScanBarcode, Shield, Zap, ArrowRight, Store, LogIn, LogOu
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/useAuth';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import ecartLogo from '@/assets/ecart-logo.png';
 
 const Index = () => {
