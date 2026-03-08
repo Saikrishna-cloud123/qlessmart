@@ -161,7 +161,7 @@ const AdminDashboard = () => {
   const TABS: { key: Tab; label: string; icon: any }[] = [
     { key: 'details', label: 'Overview', icon: Store },
     { key: 'analytics', label: 'Analytics', icon: BarChart3 },
-    { key: 'inventory', label: 'Products', icon: Package },
+    
     { key: 'history', label: 'Sessions', icon: History },
     { key: 'audit', label: 'Audit', icon: FileText },
     { key: 'branches', label: 'Branches', icon: MapPin },
