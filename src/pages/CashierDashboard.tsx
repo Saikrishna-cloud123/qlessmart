@@ -143,7 +143,7 @@ const CashierDashboard = () => {
         .from('sessions')
         .select('total_amount')
         .eq('mart_id', employeeMartId)
-        .eq('state', 'PAID' as any)
+        .in('state', ['PAID', 'CLOSED'] as any)
         .gte('created_at', todayStart);
 
       if (todaySessions) {
