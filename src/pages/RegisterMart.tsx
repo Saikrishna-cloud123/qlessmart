@@ -71,7 +71,7 @@ const RegisterMart = () => {
       return;
     }
 
-    await supabase.from('user_roles').insert({ user_id: user.id, role: 'admin' as any });
+    // Admin role is auto-assigned by database trigger on mart creation
     await refreshRoles();
     setMartId(data.id);
     toast.success('Store created!');
