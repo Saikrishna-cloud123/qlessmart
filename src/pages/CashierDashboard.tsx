@@ -707,13 +707,40 @@ const CashierDashboard = () => {
 
           {/* ── Billing Tab ── */}
           <TabsContent value="billing" className="space-y-6">
-            {/* QR Scanner */}
+            {/* QR Camera Scanner */}
             <div className="rounded-xl border border-border bg-card p-4">
-              <h3 className="mb-3 flex items-center gap-2 font-semibold text-foreground">
-                <ScanBarcode className="h-5 w-5 text-primary" /> Scan Customer QR
-              </h3>
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="flex items-center gap-2 font-semibold text-foreground">
+                  <ScanBarcode className="h-5 w-5 text-primary" /> Scan Customer QR
+                </h3>
+                <Button
+                  variant={qrScannerActive ? 'destructive' : 'outline'}
+                  size="sm"
+                  onClick={() => setQrScannerActive(!qrScannerActive)}
+                >
+                  {qrScannerActive ? <VideoOff className="mr-2 h-4 w-4" /> : <Camera className="mr-2 h-4 w-4" />}
+                  {qrScannerActive ? 'Stop Camera' : 'Open Camera'}
+                </Button>
+              </div>
+
+              {/* Camera preview */}
+              <AnimatePresence>
+                {qrScannerActive && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="mb-3 overflow-hidden rounded-lg"
+                  >
+                    <div id="cashier-qr-reader" className="w-full rounded-lg overflow-hidden" />
+                    <p className="mt-2 text-center text-xs text-muted-foreground">Point camera at customer's QR code</p>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* Manual input fallback */}
               <form onSubmit={(e) => { e.preventDefault(); handleScanQR(); }} className="flex gap-2">
-                <Input placeholder="Scan QR or enter session ID..." value={scanInput} onChange={(e) => setScanInput(e.target.value)} className="font-mono" />
+                <Input placeholder="Or enter session code manually..." value={scanInput} onChange={(e) => setScanInput(e.target.value)} className="font-mono" />
                 <Button type="submit" disabled={!scanInput.trim()} className="gradient-primary border-0 text-primary-foreground">
                   <ScanBarcode className="h-5 w-5" />
                 </Button>
