@@ -1,26 +1,31 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Shield, ShieldCheck, ShieldX, Package, ArrowLeft,
+  Shield, ShieldCheck, Package, ArrowLeft,
   CheckCircle2, XCircle, CreditCard, Receipt, Clock,
   ScanBarcode, Plus, Minus, User, Banknote, QrCode, Smartphone,
-  Settings, Save, Mail, LogOut, Camera,
+  Settings, Save, Mail, LogOut, Camera, BarChart3, LayoutDashboard,
+  TrendingUp, IndianRupee, FileText, Activity,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import type { CartItem } from '@/hooks/useSession';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+
+/* ── Constants ──────────────────────────────────────────────── */
 
 const STATE_COLORS: Record<string, string> = {
   ACTIVE: 'bg-accent/20 text-accent-foreground',
-  LOCKED: 'bg-warning/20 text-warning-foreground',
-  VERIFIED: 'bg-primary/20 text-primary',
-  PAID: 'bg-primary/20 text-primary',
+  LOCKED: 'bg-yellow-500/15 text-yellow-700 dark:text-yellow-400',
+  VERIFIED: 'bg-blue-500/15 text-blue-700 dark:text-blue-400',
+  PAID: 'bg-primary/15 text-primary',
   CLOSED: 'bg-muted text-muted-foreground',
 };
 
@@ -47,6 +52,8 @@ interface SessionRow {
   verified_by: string | null;
 }
 
+/* ── Main Component ─────────────────────────────────────────── */
+
 const CashierDashboard = () => {
   const navigate = useNavigate();
   const { user, profile, updateProfile, signOut } = useAuth();
@@ -57,12 +64,20 @@ const CashierDashboard = () => {
   const [scanInput, setScanInput] = useState('');
   const [addBarcode, setAddBarcode] = useState('');
   const [addingItem, setAddingItem] = useState(false);
+  const [activeTab, setActiveTab] = useState('overview');
+
+  // Profile settings
   const [showSettings, setShowSettings] = useState(false);
   const [profileName, setProfileName] = useState(profile?.display_name || '');
-  const [profileAvatar, setProfileAvatar] = useState(profile?.avatar_url || '');
   const [savingProfile, setSavingProfile] = useState(false);
 
   const [employeeMartId, setEmployeeMartId] = useState<string | null>(null);
+
+  // Analytics state
+  const [todaysBills, setTodaysBills] = useState(0);
+  const [todaysRevenue, setTodaysRevenue] = useState(0);
+  const [weekRevenue, setWeekRevenue] = useState(0);
+  const [dailyData, setDailyData] = useState<{ date: string; revenue: number; bills: number }[]>([]);
 
   useEffect(() => {
     if (!user) return;
@@ -72,6 +87,7 @@ const CashierDashboard = () => {
       });
   }, [user]);
 
+  /* ── Fetch sessions ── */
   const fetchSessions = useCallback(async () => {
     if (!employeeMartId) return;
     const { data } = await supabase
@@ -85,6 +101,7 @@ const CashierDashboard = () => {
 
   useEffect(() => { fetchSessions(); }, [fetchSessions]);
 
+  /* ── Realtime ── */
   useEffect(() => {
     if (!employeeMartId) return;
     const channel = supabase
@@ -97,14 +114,70 @@ const CashierDashboard = () => {
     return () => { supabase.removeChannel(channel); };
   }, [employeeMartId, fetchSessions]);
 
+  /* ── Analytics data ── */
+  useEffect(() => {
+    if (!employeeMartId) return;
+    const loadAnalytics = async () => {
+      const now = new Date();
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+      const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6).toISOString();
+
+      // Today's stats
+      const { data: todaySessions } = await supabase
+        .from('sessions')
+        .select('total_amount')
+        .eq('mart_id', employeeMartId)
+        .eq('state', 'PAID' as any)
+        .gte('created_at', todayStart);
+
+      if (todaySessions) {
+        setTodaysBills(todaySessions.length);
+        setTodaysRevenue(todaySessions.reduce((s, r) => s + Number(r.total_amount), 0));
+      }
+
+      // Week data for chart
+      const { data: weekSessions } = await supabase
+        .from('sessions')
+        .select('total_amount, created_at')
+        .eq('mart_id', employeeMartId)
+        .eq('state', 'PAID' as any)
+        .gte('created_at', weekStart)
+        .order('created_at', { ascending: true });
+
+      if (weekSessions) {
+        setWeekRevenue(weekSessions.reduce((s, r) => s + Number(r.total_amount), 0));
+        // Group by day
+        const grouped: Record<string, { revenue: number; bills: number }> = {};
+        for (let i = 6; i >= 0; i--) {
+          const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+          const key = d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric' });
+          grouped[key] = { revenue: 0, bills: 0 };
+        }
+        weekSessions.forEach(s => {
+          const d = new Date(s.created_at);
+          const key = d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric' });
+          if (grouped[key]) {
+            grouped[key].revenue += Number(s.total_amount);
+            grouped[key].bills += 1;
+          }
+        });
+        setDailyData(Object.entries(grouped).map(([date, v]) => ({ date, ...v })));
+      }
+    };
+    loadAnalytics();
+  }, [employeeMartId, sessions]);
+
+  /* ── Session detail loading ── */
   const loadSessionDetail = useCallback(async (sess: SessionRow) => {
     setSelectedSession(sess);
+    setActiveTab('billing');
     const { data: items } = await supabase.from('cart_items').select('*').eq('session_id', sess.id);
     setSessionItems((items || []) as CartItem[]);
     const { data: prof } = await supabase.from('profiles').select('display_name').eq('id', sess.user_id).single();
     setCustomerName(prof?.display_name || 'Customer');
   }, []);
 
+  /* ── QR Scan ── */
   const handleScanQR = async () => {
     const input = scanInput.trim();
     if (!input) return;
@@ -124,6 +197,7 @@ const CashierDashboard = () => {
     }
   };
 
+  /* ── Cart actions ── */
   const verifyCart = async () => {
     if (!selectedSession || !user) return;
     const { error } = await supabase
@@ -147,7 +221,6 @@ const CashierDashboard = () => {
 
   const markPaid = async () => {
     if (!selectedSession) return;
-    // Create payment record
     await supabase.from('payments').insert({
       session_id: selectedSession.id,
       amount: selectedSession.total_amount,
@@ -155,7 +228,6 @@ const CashierDashboard = () => {
       status: 'completed',
       paid_at: new Date().toISOString(),
     });
-    // Generate invoice
     await supabase.from('invoices').insert({
       session_id: selectedSession.id,
       mart_id: selectedSession.mart_id,
@@ -169,16 +241,10 @@ const CashierDashboard = () => {
     });
     await supabase.from('sessions').update({ state: 'PAID' as any }).eq('id', selectedSession.id);
 
-    // Deliver invoice to mart API
     try {
-      await supabase.functions.invoke('deliver-invoice', {
-        body: { session_id: selectedSession.id },
-      });
-    } catch (e) {
-      console.log('Invoice delivery skipped:', e);
-    }
+      await supabase.functions.invoke('deliver-invoice', { body: { session_id: selectedSession.id } });
+    } catch (e) { console.log('Invoice delivery skipped:', e); }
 
-    // Audit log
     if (user) {
       await supabase.from('audit_logs').insert({
         action: 'PAYMENT_COMPLETED',
@@ -238,6 +304,13 @@ const CashierDashboard = () => {
     toast.success('Payment method updated');
   };
 
+  /* ── Computed ── */
+  const lockedSessions = useMemo(() => sessions.filter(s => s.state === 'LOCKED'), [sessions]);
+  const verifiedSessions = useMemo(() => sessions.filter(s => s.state === 'VERIFIED'), [sessions]);
+  const paidSessions = useMemo(() => sessions.filter(s => s.state === 'PAID'), [sessions]);
+  const avgBillValue = todaysBills > 0 ? todaysRevenue / todaysBills : 0;
+
+  /* ── Not assigned guard ── */
   if (!employeeMartId) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background p-6">
@@ -253,7 +326,7 @@ const CashierDashboard = () => {
     );
   }
 
-  // Session detail view
+  /* ── Session detail view ── */
   if (selectedSession) {
     const payInfo = PAYMENT_LABELS[selectedSession.payment_method || 'cash'];
     return (
@@ -275,7 +348,7 @@ const CashierDashboard = () => {
           </div>
         </header>
         <div className="mx-auto max-w-2xl p-6">
-          {/* Customer info — display_name only, no email */}
+          {/* Customer info */}
           <div className="mb-4 flex items-center gap-3 rounded-xl border border-border bg-card p-3">
             <User className="h-5 w-5 text-primary" />
             <div>
@@ -358,12 +431,7 @@ const CashierDashboard = () => {
           {/* Add item */}
           {selectedSession.state === 'LOCKED' && (
             <form onSubmit={(e) => { e.preventDefault(); addItemToSession(); }} className="mb-4 flex gap-2">
-              <Input
-                placeholder="Add barcode..."
-                value={addBarcode}
-                onChange={(e) => setAddBarcode(e.target.value)}
-                className="font-mono"
-              />
+              <Input placeholder="Add barcode..." value={addBarcode} onChange={(e) => setAddBarcode(e.target.value)} className="font-mono" />
               <Button type="submit" disabled={addingItem || !addBarcode.trim()} className="gradient-primary border-0 text-primary-foreground">
                 <Plus className="h-4 w-4" />
               </Button>
@@ -404,8 +472,7 @@ const CashierDashboard = () => {
     );
   }
 
-  // Dashboard list
-  const lockedSessions = sessions.filter(s => s.state === 'LOCKED');
+  /* ── Main tabbed dashboard ── */
   return (
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-10 border-b border-border bg-card/90 px-6 py-4 backdrop-blur-md">
@@ -413,7 +480,7 @@ const CashierDashboard = () => {
           <div>
             <h1 className="text-xl font-bold text-foreground">Cashier Dashboard</h1>
             <p className="text-sm text-muted-foreground">
-              {lockedSessions.length} pending verification{lockedSessions.length !== 1 ? 's' : ''}
+              {lockedSessions.length} pending · {verifiedSessions.length} verified · {paidSessions.length} paid today
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -428,97 +495,315 @@ const CashierDashboard = () => {
         </div>
       </header>
 
-      <div className="mx-auto max-w-2xl p-6">
-        {showSettings && (
-          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="mb-6 rounded-xl border border-border bg-card p-6 space-y-4">
-            <h3 className="font-semibold text-foreground flex items-center gap-2"><User className="h-4 w-4" /> Profile</h3>
-            <div>
-              <Label className="text-sm font-medium text-foreground">Display Name</Label>
-              <Input value={profileName} onChange={e => setProfileName(e.target.value)} placeholder="Your name" className="mt-1" />
-            </div>
-            <div>
-              <Label className="text-sm font-medium text-foreground">Email</Label>
-              <div className="mt-1 flex items-center gap-2 rounded-md border border-input bg-muted px-3 py-2 text-sm text-muted-foreground">
-                <Mail className="h-4 w-4" /> {user?.email}
+      <div className="mx-auto max-w-3xl p-6">
+        {/* Profile settings panel */}
+        <AnimatePresence>
+          {showSettings && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="mb-6 overflow-hidden rounded-xl border border-border bg-card p-6 space-y-4"
+            >
+              <h3 className="font-semibold text-foreground flex items-center gap-2"><User className="h-4 w-4" /> Profile</h3>
+              <div>
+                <Label className="text-sm font-medium text-foreground">Display Name</Label>
+                <Input value={profileName} onChange={e => setProfileName(e.target.value)} placeholder="Your name" className="mt-1" />
+              </div>
+              <div>
+                <Label className="text-sm font-medium text-foreground">Email</Label>
+                <div className="mt-1 flex items-center gap-2 rounded-md border border-input bg-muted px-3 py-2 text-sm text-muted-foreground">
+                  <Mail className="h-4 w-4" /> {user?.email}
+                </div>
+              </div>
+              <Button disabled={savingProfile} className="w-full gradient-primary border-0 text-primary-foreground" onClick={async () => {
+                setSavingProfile(true);
+                const { error } = await updateProfile({ display_name: profileName.trim() || null });
+                setSavingProfile(false);
+                if (error) toast.error('Failed to save'); else toast.success('Profile updated!');
+              }}>
+                <Save className="mr-2 h-4 w-4" /> Save
+              </Button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Tabs */}
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <TabsList className="grid w-full grid-cols-3 mb-6">
+            <TabsTrigger value="overview" className="flex items-center gap-2">
+              <LayoutDashboard className="h-4 w-4" /> Overview
+            </TabsTrigger>
+            <TabsTrigger value="billing" className="flex items-center gap-2">
+              <ScanBarcode className="h-4 w-4" /> Billing
+            </TabsTrigger>
+            <TabsTrigger value="analytics" className="flex items-center gap-2">
+              <BarChart3 className="h-4 w-4" /> Analytics
+            </TabsTrigger>
+          </TabsList>
+
+          {/* ── Overview Tab ── */}
+          <TabsContent value="overview" className="space-y-6">
+            {/* Summary cards */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="rounded-xl border border-border bg-card p-4">
+                <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                  <Shield className="h-4 w-4 text-yellow-500" />
+                  <span className="text-xs font-medium">Pending</span>
+                </div>
+                <p className="text-2xl font-bold text-foreground">{lockedSessions.length}</p>
+                <p className="text-xs text-muted-foreground">Awaiting verification</p>
+              </div>
+              <div className="rounded-xl border border-border bg-card p-4">
+                <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                  <ShieldCheck className="h-4 w-4 text-blue-500" />
+                  <span className="text-xs font-medium">Verified</span>
+                </div>
+                <p className="text-2xl font-bold text-foreground">{verifiedSessions.length}</p>
+                <p className="text-xs text-muted-foreground">Ready for payment</p>
+              </div>
+              <div className="rounded-xl border border-border bg-card p-4">
+                <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                  <Receipt className="h-4 w-4 text-primary" />
+                  <span className="text-xs font-medium">Bills Today</span>
+                </div>
+                <p className="text-2xl font-bold text-foreground">{todaysBills}</p>
+                <p className="text-xs text-muted-foreground">Completed</p>
+              </div>
+              <div className="rounded-xl border border-border bg-card p-4">
+                <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                  <IndianRupee className="h-4 w-4 text-primary" />
+                  <span className="text-xs font-medium">Revenue Today</span>
+                </div>
+                <p className="text-2xl font-bold text-foreground">₹{todaysRevenue.toFixed(0)}</p>
+                <p className="text-xs text-muted-foreground">Total collected</p>
               </div>
             </div>
-            <Button disabled={savingProfile} className="w-full gradient-primary border-0 text-primary-foreground" onClick={async () => {
-              setSavingProfile(true);
-              const { error } = await updateProfile({ display_name: profileName.trim() || null, avatar_url: profileAvatar.trim() || null });
-              setSavingProfile(false);
-              if (error) toast.error('Failed to save'); else toast.success('Profile updated!');
-            }}>
-              <Save className="mr-2 h-4 w-4" /> Save
-            </Button>
-          </motion.div>
-        )}
 
-        {/* QR Scanner */}
-        <div className="mb-6 rounded-xl border border-border bg-card p-4">
-          <h3 className="mb-3 flex items-center gap-2 font-semibold text-foreground">
-            <ScanBarcode className="h-5 w-5 text-primary" /> Scan Customer QR
-          </h3>
-          <form onSubmit={(e) => { e.preventDefault(); handleScanQR(); }} className="flex gap-2">
-            <Input
-              placeholder="Scan QR or enter session ID..."
-              value={scanInput}
-              onChange={(e) => setScanInput(e.target.value)}
-              className="font-mono"
-            />
-            <Button type="submit" disabled={!scanInput.trim()} className="gradient-primary border-0 text-primary-foreground">
-              <ScanBarcode className="h-5 w-5" />
-            </Button>
-          </form>
-        </div>
+            {/* Quick scan */}
+            <div className="rounded-xl border border-border bg-card p-4">
+              <h3 className="mb-3 flex items-center gap-2 font-semibold text-foreground">
+                <ScanBarcode className="h-5 w-5 text-primary" /> Quick Scan
+              </h3>
+              <form onSubmit={(e) => { e.preventDefault(); handleScanQR(); }} className="flex gap-2">
+                <Input placeholder="Scan QR or enter session code..." value={scanInput} onChange={(e) => setScanInput(e.target.value)} className="font-mono" />
+                <Button type="submit" disabled={!scanInput.trim()} className="gradient-primary border-0 text-primary-foreground">
+                  <ScanBarcode className="h-5 w-5" />
+                </Button>
+              </form>
+            </div>
 
-        {/* Sessions list */}
-        <div className="mb-4 flex items-center gap-2">
-          <Clock className="h-5 w-5 text-primary" />
-          <h3 className="font-semibold text-foreground">Pending Sessions</h3>
-          <span className="ml-auto text-sm text-muted-foreground">{sessions.length} total</span>
-        </div>
+            {/* Recent sessions */}
+            <div>
+              <div className="mb-3 flex items-center gap-2">
+                <Activity className="h-5 w-5 text-primary" />
+                <h3 className="font-semibold text-foreground">Recent Activity</h3>
+              </div>
+              {sessions.length === 0 ? (
+                <div className="rounded-xl border border-border bg-card p-12 text-center">
+                  <Receipt className="mx-auto mb-3 h-12 w-12 text-muted-foreground/30" />
+                  <p className="text-muted-foreground">No recent sessions</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {sessions.slice(0, 5).map((sess) => {
+                    const payLabel = PAYMENT_LABELS[sess.payment_method || 'cash'];
+                    return (
+                      <button
+                        key={sess.id}
+                        className="flex w-full items-center gap-4 rounded-xl border border-border bg-card p-3 text-left hover:bg-muted/50 transition-colors"
+                        onClick={() => loadSessionDetail(sess)}
+                      >
+                        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
+                          {sess.state === 'LOCKED' ? <Shield className="h-4 w-4 text-yellow-500" /> :
+                           sess.state === 'VERIFIED' ? <ShieldCheck className="h-4 w-4 text-blue-500" /> :
+                           <CheckCircle2 className="h-4 w-4 text-primary" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-mono text-sm font-medium text-foreground">{sess.session_code}</p>
+                          <p className="text-xs text-muted-foreground">{payLabel?.label} · {new Date(sess.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-medium text-foreground">₹{sess.total_amount.toFixed(2)}</p>
+                          <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold ${STATE_COLORS[sess.state]}`}>{sess.state}</span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </TabsContent>
 
-        {sessions.length === 0 ? (
-          <div className="rounded-xl border border-border bg-card p-12 text-center">
-            <Receipt className="mx-auto mb-3 h-12 w-12 text-muted-foreground/30" />
-            <p className="text-muted-foreground">No sessions waiting for verification</p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {sessions.map((sess, i) => {
-              const payLabel = PAYMENT_LABELS[sess.payment_method || 'cash'];
-              return (
-                <motion.button
-                  key={sess.id}
-                  className="flex w-full items-center gap-4 rounded-xl border border-border bg-card p-4 text-left hover:bg-muted/50 transition-colors"
-                  onClick={() => loadSessionDetail(sess)}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: i * 0.03 }}
-                  whileTap={{ scale: 0.98 }}
-                >
-                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-                    {sess.state === 'LOCKED' ? <Shield className="h-5 w-5 text-primary" /> :
-                     sess.state === 'VERIFIED' ? <ShieldCheck className="h-5 w-5 text-primary" /> :
-                     <CheckCircle2 className="h-5 w-5 text-primary" />}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-mono text-sm font-medium text-foreground">{sess.session_code}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {payLabel?.label} · {new Date(sess.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-medium text-foreground">₹{sess.total_amount.toFixed(2)}</p>
-                    <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-bold ${STATE_COLORS[sess.state]}`}>
-                      {sess.state}
-                    </span>
-                  </div>
-                </motion.button>
-              );
-            })}
-          </div>
-        )}
+          {/* ── Billing Tab ── */}
+          <TabsContent value="billing" className="space-y-6">
+            {/* QR Scanner */}
+            <div className="rounded-xl border border-border bg-card p-4">
+              <h3 className="mb-3 flex items-center gap-2 font-semibold text-foreground">
+                <ScanBarcode className="h-5 w-5 text-primary" /> Scan Customer QR
+              </h3>
+              <form onSubmit={(e) => { e.preventDefault(); handleScanQR(); }} className="flex gap-2">
+                <Input placeholder="Scan QR or enter session ID..." value={scanInput} onChange={(e) => setScanInput(e.target.value)} className="font-mono" />
+                <Button type="submit" disabled={!scanInput.trim()} className="gradient-primary border-0 text-primary-foreground">
+                  <ScanBarcode className="h-5 w-5" />
+                </Button>
+              </form>
+            </div>
+
+            {/* Sessions list */}
+            <div className="mb-3 flex items-center gap-2">
+              <Clock className="h-5 w-5 text-primary" />
+              <h3 className="font-semibold text-foreground">All Sessions</h3>
+              <span className="ml-auto text-sm text-muted-foreground">{sessions.length} total</span>
+            </div>
+
+            {sessions.length === 0 ? (
+              <div className="rounded-xl border border-border bg-card p-12 text-center">
+                <Receipt className="mx-auto mb-3 h-12 w-12 text-muted-foreground/30" />
+                <p className="text-muted-foreground">No sessions waiting</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {sessions.map((sess, i) => {
+                  const payLabel = PAYMENT_LABELS[sess.payment_method || 'cash'];
+                  return (
+                    <motion.button
+                      key={sess.id}
+                      className="flex w-full items-center gap-4 rounded-xl border border-border bg-card p-4 text-left hover:bg-muted/50 transition-colors"
+                      onClick={() => loadSessionDetail(sess)}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: i * 0.03 }}
+                      whileTap={{ scale: 0.98 }}
+                    >
+                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+                        {sess.state === 'LOCKED' ? <Shield className="h-5 w-5 text-yellow-500" /> :
+                         sess.state === 'VERIFIED' ? <ShieldCheck className="h-5 w-5 text-blue-500" /> :
+                         <CheckCircle2 className="h-5 w-5 text-primary" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-mono text-sm font-medium text-foreground">{sess.session_code}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {payLabel?.label} · {new Date(sess.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-medium text-foreground">₹{sess.total_amount.toFixed(2)}</p>
+                        <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-bold ${STATE_COLORS[sess.state]}`}>{sess.state}</span>
+                      </div>
+                    </motion.button>
+                  );
+                })}
+              </div>
+            )}
+          </TabsContent>
+
+          {/* ── Analytics Tab ── */}
+          <TabsContent value="analytics" className="space-y-6">
+            {/* Stats grid */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="rounded-xl border border-border bg-card p-4">
+                <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                  <Receipt className="h-4 w-4" />
+                  <span className="text-xs font-medium">Bills Today</span>
+                </div>
+                <p className="text-2xl font-bold text-foreground">{todaysBills}</p>
+              </div>
+              <div className="rounded-xl border border-border bg-card p-4">
+                <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                  <IndianRupee className="h-4 w-4" />
+                  <span className="text-xs font-medium">Revenue Today</span>
+                </div>
+                <p className="text-2xl font-bold text-foreground">₹{todaysRevenue.toFixed(0)}</p>
+              </div>
+              <div className="rounded-xl border border-border bg-card p-4">
+                <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                  <TrendingUp className="h-4 w-4" />
+                  <span className="text-xs font-medium">This Week</span>
+                </div>
+                <p className="text-2xl font-bold text-foreground">₹{weekRevenue.toFixed(0)}</p>
+              </div>
+              <div className="rounded-xl border border-border bg-card p-4">
+                <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                  <FileText className="h-4 w-4" />
+                  <span className="text-xs font-medium">Avg Bill</span>
+                </div>
+                <p className="text-2xl font-bold text-foreground">₹{avgBillValue.toFixed(0)}</p>
+              </div>
+            </div>
+
+            {/* Revenue chart */}
+            <div className="rounded-xl border border-border bg-card p-4">
+              <h3 className="mb-4 font-semibold text-foreground flex items-center gap-2">
+                <BarChart3 className="h-5 w-5 text-primary" /> 7-Day Revenue
+              </h3>
+              {dailyData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={220}>
+                  <AreaChart data={dailyData}>
+                    <defs>
+                      <linearGradient id="cashierRevGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                    <XAxis dataKey="date" className="text-xs" tick={{ fill: 'hsl(var(--muted-foreground))' }} />
+                    <YAxis className="text-xs" tick={{ fill: 'hsl(var(--muted-foreground))' }} />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: 'hsl(var(--card))',
+                        border: '1px solid hsl(var(--border))',
+                        borderRadius: '0.75rem',
+                        color: 'hsl(var(--foreground))',
+                      }}
+                      formatter={(value: number) => [`₹${value.toFixed(0)}`, 'Revenue']}
+                    />
+                    <Area type="monotone" dataKey="revenue" stroke="hsl(var(--primary))" fillOpacity={1} fill="url(#cashierRevGrad)" strokeWidth={2} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex h-[220px] items-center justify-center text-muted-foreground">
+                  No revenue data yet
+                </div>
+              )}
+            </div>
+
+            {/* Bills chart */}
+            <div className="rounded-xl border border-border bg-card p-4">
+              <h3 className="mb-4 font-semibold text-foreground flex items-center gap-2">
+                <Receipt className="h-5 w-5 text-primary" /> Daily Bills Count
+              </h3>
+              {dailyData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={180}>
+                  <AreaChart data={dailyData}>
+                    <defs>
+                      <linearGradient id="cashierBillGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="hsl(var(--accent))" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="hsl(var(--accent))" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                    <XAxis dataKey="date" className="text-xs" tick={{ fill: 'hsl(var(--muted-foreground))' }} />
+                    <YAxis className="text-xs" tick={{ fill: 'hsl(var(--muted-foreground))' }} allowDecimals={false} />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: 'hsl(var(--card))',
+                        border: '1px solid hsl(var(--border))',
+                        borderRadius: '0.75rem',
+                        color: 'hsl(var(--foreground))',
+                      }}
+                    />
+                    <Area type="monotone" dataKey="bills" stroke="hsl(var(--accent))" fillOpacity={1} fill="url(#cashierBillGrad)" strokeWidth={2} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex h-[180px] items-center justify-center text-muted-foreground">
+                  No bills data yet
+                </div>
+              )}
+            </div>
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   );
