@@ -614,7 +614,7 @@ const CustomerScan = () => {
               <span className="text-sm font-bold text-primary">{items.length}</span>
             </div>
             {session?.state === 'ACTIVE' && (
-              <Button variant="ghost" size="icon" className="text-destructive" onClick={cancelSession} title="Cancel cart">
+              <Button variant="ghost" size="icon" className="text-destructive" onClick={() => setCancelDialogOpen(true)} title="Cancel cart">
                 <XCircle className="h-5 w-5" />
               </Button>
             )}
