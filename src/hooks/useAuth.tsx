@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import type { User, Session } from '@supabase/supabase-js';
 
@@ -22,6 +22,7 @@ interface AuthContextType {
   signOut: () => Promise<void>;
   updateProfile: (updates: Partial<Profile>) => Promise<{ error: any }>;
   hasRole: (role: AppRole) => boolean;
+  refreshRoles: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -42,13 +43,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (data) setProfile(data as Profile);
   };
 
-  const fetchRoles = async (userId: string) => {
+  const fetchRoles = useCallback(async (userId?: string) => {
+    const uid = userId || user?.id;
+    if (!uid) return;
     const { data } = await supabase
       .from('user_roles')
       .select('role')
-      .eq('user_id', userId);
+      .eq('user_id', uid);
     if (data) setRoles(data.map((r: any) => r.role as AppRole));
-  };
+  }, [user?.id]);
+
+  const refreshRoles = useCallback(async () => {
+    await fetchRoles();
+  }, [fetchRoles]);
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
@@ -57,7 +64,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(session?.user ?? null);
 
         if (session?.user) {
-          // Use setTimeout to avoid Supabase client deadlock
           setTimeout(() => {
             fetchProfile(session.user.id);
             fetchRoles(session.user.id);
@@ -125,7 +131,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return (
     <AuthContext.Provider value={{
       user, session, profile, roles, loading,
-      signUp, signIn, signOut, updateProfile, hasRole,
+      signUp, signIn, signOut, updateProfile, hasRole, refreshRoles,
     }}>
       {children}
     </AuthContext.Provider>

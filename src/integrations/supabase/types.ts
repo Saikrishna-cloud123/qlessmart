@@ -326,6 +326,59 @@ export type Database = {
           },
         ]
       }
+      products: {
+        Row: {
+          barcode: string
+          branch_id: string
+          brand: string | null
+          category: string | null
+          created_at: string
+          id: string
+          image_url: string | null
+          is_active: boolean
+          price: number
+          stock: number
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          barcode: string
+          branch_id: string
+          brand?: string | null
+          category?: string | null
+          created_at?: string
+          id?: string
+          image_url?: string | null
+          is_active?: boolean
+          price?: number
+          stock?: number
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          barcode?: string
+          branch_id?: string
+          brand?: string | null
+          category?: string | null
+          created_at?: string
+          id?: string
+          image_url?: string | null
+          is_active?: boolean
+          price?: number
+          stock?: number
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "products_branch_id_fkey"
+            columns: ["branch_id"]
+            isOneToOne: false
+            referencedRelation: "branches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           avatar_url: string | null
