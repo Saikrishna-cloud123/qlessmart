@@ -101,6 +101,7 @@ const Index = () => {
               <Store className="mr-2 h-5 w-5" />
               Register Your Store
             </Button>
+          </motion.div>
         </div>
       </header>
 
