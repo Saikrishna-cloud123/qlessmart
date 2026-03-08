@@ -537,7 +537,19 @@ const CashierDashboard = () => {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold text-foreground">Cashier Dashboard</h1>
-            <p className="text-sm text-muted-foreground">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              {martName && (
+                <span className="flex items-center gap-1">
+                  <Store className="h-3.5 w-3.5" /> {martName}
+                </span>
+              )}
+              {branchName && (
+                <span className="flex items-center gap-1">
+                  <MapPin className="h-3.5 w-3.5" /> {branchName}
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground mt-0.5">
               {lockedSessions.length} pending · {verifiedSessions.length} verified · {paidSessions.length} paid today
             </p>
           </div>
