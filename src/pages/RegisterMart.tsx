@@ -62,7 +62,7 @@ const RegisterMart = () => {
     const { data, error } = await supabase.from('marts').insert({
       name: result.data.name,
       owner_id: user.id,
-      config: DEFAULT_STORE_CONFIG,
+      config: JSON.parse(JSON.stringify(DEFAULT_STORE_CONFIG)),
     }).select().single();
 
     if (error) {
