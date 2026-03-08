@@ -49,6 +49,7 @@ const AdminDashboard = () => {
   const [newBranchAddr, setNewBranchAddr] = useState('');
   const [newEmpName, setNewEmpName] = useState('');
   const [newEmpEmail, setNewEmpEmail] = useState('');
+  const [newEmpRole, setNewEmpRole] = useState<'cashier' | 'exit_guard'>('cashier');
   const [configJson, setConfigJson] = useState('');
   const [upiId, setUpiId] = useState('');
   const [merchantName, setMerchantName] = useState('');
