@@ -47,10 +47,6 @@ const AdminDashboard = () => {
   const [tab, setTab] = useState<Tab>('details');
   const [loading, setLoading] = useState(true);
 
-  // Create mart form
-  const [createMode, setCreateMode] = useState(false);
-  const [newMartName, setNewMartName] = useState('');
-
   // Branch form
   const [newBranchName, setNewBranchName] = useState('');
   const [newBranchUrl, setNewBranchUrl] = useState('');
