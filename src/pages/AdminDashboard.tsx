@@ -153,8 +153,8 @@ const AdminDashboard = () => {
     if (!prof) { toast.error('User not found. They must create an account first.'); return; }
     const { error } = await supabase.from('employees').insert({ mart_id: mart.id, user_id: prof.id, employee_name: newEmpName.trim() });
     if (error) { toast.error(error.message); return; }
-    await supabase.from('user_roles').insert({ user_id: prof.id, role: 'cashier' as any });
-    toast.success('Employee added'); setNewEmpName(''); setNewEmpEmail(''); fetchMart();
+    await supabase.from('user_roles').insert({ user_id: prof.id, role: newEmpRole as any });
+    toast.success(`${newEmpRole === 'exit_guard' ? 'Exit Guard' : 'Cashier'} added`); setNewEmpName(''); setNewEmpEmail(''); setNewEmpRole('cashier'); fetchMart();
   };
   const removeEmployee = async (emp: Employee) => {
     await supabase.from('employees').delete().eq('id', emp.id);
