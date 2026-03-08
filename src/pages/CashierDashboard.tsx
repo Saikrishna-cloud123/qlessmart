@@ -4,13 +4,16 @@ import {
   Shield, ShieldCheck, ShieldX, Package, ArrowLeft,
   CheckCircle2, XCircle, CreditCard, Receipt, Clock,
   ScanBarcode, Plus, Minus, User, Banknote, QrCode, Smartphone,
+  Settings, Save, Mail, LogOut, Camera,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import type { CartItem } from '@/hooks/useSession';
 
 const STATE_COLORS: Record<string, string> = {
