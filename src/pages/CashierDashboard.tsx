@@ -414,9 +414,15 @@ const CashierDashboard = () => {
             <h1 className="text-xl font-bold text-foreground">Cashier Dashboard</h1>
             <p className="text-sm text-muted-foreground">Welcome, {profile?.display_name || 'Cashier'}</p>
           </div>
-          <Button variant="ghost" size="sm" onClick={() => navigate('/')}>
-            <ArrowLeft className="mr-1 h-4 w-4" /> Exit
-          </Button>
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
+            <Button variant="ghost" size="sm" onClick={() => setShowSettings(!showSettings)}>
+              <Settings className="mr-1 h-4 w-4" /> {showSettings ? 'Sessions' : 'Settings'}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => navigate('/')}>
+              <ArrowLeft className="mr-1 h-4 w-4" /> Home
+            </Button>
+          </div>
         </div>
       </header>
       <div className="mx-auto max-w-2xl p-6">
