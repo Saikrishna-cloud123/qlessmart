@@ -509,7 +509,7 @@ export type Database = {
       }
     }
     Enums: {
-      app_role: "customer" | "cashier" | "admin"
+      app_role: "customer" | "cashier" | "admin" | "exit_guard"
       cart_state:
         | "CREATED"
         | "ACTIVE"
@@ -645,7 +645,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      app_role: ["customer", "cashier", "admin"],
+      app_role: ["customer", "cashier", "admin", "exit_guard"],
       cart_state: ["CREATED", "ACTIVE", "LOCKED", "VERIFIED", "PAID", "CLOSED"],
       payment_method: ["cash", "card", "upi_counter", "upi_app", "razorpay"],
     },
