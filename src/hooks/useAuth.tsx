@@ -34,14 +34,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [roles, setRoles] = useState<AppRole[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchProfile = async (userId: string) => {
+  const fetchProfile = useCallback(async (userId: string) => {
     const { data } = await supabase
       .from('profiles')
       .select('*')
       .eq('id', userId)
       .single();
     if (data) setProfile(data as Profile);
-  };
+  }, []);
 
   const fetchRoles = useCallback(async (userId?: string) => {
     const uid = userId || user?.id;
@@ -64,10 +64,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(session?.user ?? null);
 
         if (session?.user) {
-          setTimeout(() => {
-            fetchProfile(session.user.id);
-            fetchRoles(session.user.id);
-          }, 0);
+          // Fetch profile and roles before marking loading as done
+          await Promise.all([
+            fetchProfile(session.user.id),
+            fetchRoles(session.user.id),
+          ]);
         } else {
           setProfile(null);
           setRoles([]);
@@ -76,12 +77,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     );
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
-        fetchProfile(session.user.id);
-        fetchRoles(session.user.id);
+        await Promise.all([
+          fetchProfile(session.user.id),
+          fetchRoles(session.user.id),
+        ]);
       }
       setLoading(false);
     });

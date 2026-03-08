@@ -35,6 +35,7 @@ const Auth = () => {
     } else if (roles.includes('exit_guard')) {
       navigate('/exit-scan', { replace: true });
     } else {
+      // Only redirect to /dashboard once loading is done (roles fetched)
       navigate('/dashboard', { replace: true });
     }
   }, [user, roles, authLoading]);
