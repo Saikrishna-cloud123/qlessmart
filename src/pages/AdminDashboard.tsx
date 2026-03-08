@@ -155,38 +155,6 @@ const AdminDashboard = () => {
     } catch (e: any) { toast.error(e.message || 'Invalid JSON'); }
   };
 
-  // Inventory CRUD
-  const addProduct = async () => {
-    if (!selectedBranch || !newProduct.barcode.trim() || !newProduct.title.trim()) return;
-    const { error } = await supabase.from('products').insert({
-      branch_id: selectedBranch, barcode: newProduct.barcode.trim(), title: newProduct.title.trim(),
-      brand: newProduct.brand.trim() || null, category: newProduct.category.trim() || null,
-      price: parseFloat(newProduct.price) || 0, stock: parseInt(newProduct.stock) || 0,
-      image_url: newProduct.image_url.trim() || null,
-    });
-    if (error) { toast.error(error.message); return; }
-    toast.success('Product added');
-    setNewProduct({ barcode: '', title: '', brand: '', category: '', price: '', stock: '', image_url: '' });
-    supabase.from('products').select('*').eq('branch_id', selectedBranch).order('created_at', { ascending: false })
-      .then(({ data }) => setProducts((data || []) as Product[]));
-  };
-
-  const startEdit = (p: Product) => { setEditingProduct(p.id); setEditForm({ title: p.title, price: p.price, stock: p.stock, is_active: p.is_active }); };
-  const saveEdit = async (id: string) => {
-    const { error } = await supabase.from('products').update(editForm).eq('id', id);
-    if (error) { toast.error(error.message); return; }
-    setProducts(prev => prev.map(p => p.id === id ? { ...p, ...editForm } as Product : p));
-    setEditingProduct(null); toast.success('Product updated');
-  };
-  const deleteProduct = async (id: string) => {
-    await supabase.from('products').delete().eq('id', id);
-    setProducts(prev => prev.filter(p => p.id !== id)); toast.success('Product removed');
-  };
-
-  const filteredProducts = products.filter(p =>
-    p.title.toLowerCase().includes(productSearch.toLowerCase()) ||
-    p.barcode.includes(productSearch)
-  );
 
   if (loading) return <div className="flex min-h-screen items-center justify-center bg-background"><div className="h-8 w-8 animate-spin rounded-full border-4 border-primary/30 border-t-primary" /></div>;
 
