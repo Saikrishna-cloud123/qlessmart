@@ -9,6 +9,10 @@ import { useNavigate } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { useSession } from '@/hooks/useSession';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
@@ -48,6 +52,7 @@ const CustomerScan = () => {
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [upiLink, setUpiLink] = useState<string | null>(null);
   const [martName, setMartName] = useState<string>('');
+  const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLDivElement>(null);
   const storeVideoRef = useRef<HTMLDivElement>(null);
@@ -140,13 +145,13 @@ const CustomerScan = () => {
 
   const cancelSession = async () => {
     if (!session) return;
-    if (!confirm('Are you sure you want to cancel this cart? All items will be removed.')) return;
     await supabase.from('cart_items').delete().eq('session_id', session.id);
     await supabase.from('carts').delete().eq('session_id', session.id);
     await supabase.from('sessions').update({ state: 'CLOSED' as any }).eq('id', session.id);
     endSession();
     setMartName('');
     setStep('select-mart');
+    setCancelDialogOpen(false);
     toast.success('Cart cancelled');
   };
 
@@ -609,7 +614,7 @@ const CustomerScan = () => {
               <span className="text-sm font-bold text-primary">{items.length}</span>
             </div>
             {session?.state === 'ACTIVE' && (
-              <Button variant="ghost" size="icon" className="text-destructive" onClick={cancelSession} title="Cancel cart">
+              <Button variant="ghost" size="icon" className="text-destructive" onClick={() => setCancelDialogOpen(true)} title="Cancel cart">
                 <XCircle className="h-5 w-5" />
               </Button>
             )}
@@ -709,7 +714,7 @@ const CustomerScan = () => {
       </div>
 
       {/* Bottom bar */}
-      {items.length > 0 && session?.state === 'ACTIVE' && (
+      {items.length > 0 && session?.state === 'ACTIVE' && session.total_amount > 0 && (
         <div className="sticky bottom-0 border-t border-border bg-card p-4">
           <div className="mb-3 flex items-center justify-between">
             <span className="text-sm text-muted-foreground">{totalQty} items</span>
@@ -720,6 +725,23 @@ const CustomerScan = () => {
           </Button>
         </div>
       )}
+
+      <AlertDialog open={cancelDialogOpen} onOpenChange={setCancelDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel Cart?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to cancel this cart? All items will be removed and this action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep Shopping</AlertDialogCancel>
+            <AlertDialogAction onClick={cancelSession} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Cancel Cart
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };
