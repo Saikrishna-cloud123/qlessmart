@@ -78,6 +78,32 @@ export function useSession() {
 
   useEffect(() => { fetchActiveSession(); }, [fetchActiveSession]);
 
+  // Cart timeout enforcement
+  useEffect(() => {
+    if (!session || session.state !== 'ACTIVE') return;
+    const timeoutMs = storeConfig.cart_timeout_minutes * 60 * 1000;
+    const createdAt = new Date(session.created_at).getTime();
+    const expiresAt = createdAt + timeoutMs;
+    const now = Date.now();
+    const remaining = expiresAt - now;
+
+    if (remaining <= 0) {
+      // Already expired
+      toast.error('Your cart has expired due to inactivity.');
+      supabase.from('sessions').update({ state: 'CLOSED' as any }).eq('id', session.id).eq('state', 'ACTIVE' as any)
+        .then(() => { setSession(null); setItems([]); });
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      toast.error('Your cart has expired due to inactivity.');
+      supabase.from('sessions').update({ state: 'CLOSED' as any }).eq('id', session.id).eq('state', 'ACTIVE' as any)
+        .then(() => { setSession(null); setItems([]); });
+    }, remaining);
+
+    return () => clearTimeout(timer);
+  }, [session?.id, session?.state, session?.created_at, storeConfig.cart_timeout_minutes]);
+
   // Subscribe to realtime session updates
   useEffect(() => {
     if (!session) return;

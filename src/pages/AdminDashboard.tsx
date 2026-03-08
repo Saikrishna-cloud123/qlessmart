@@ -3,8 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Store, MapPin, Users, Plus, ArrowLeft, Settings, Trash2, Save,
   BarChart3, History, TrendingUp, DollarSign, ShoppingCart, Calendar,
-  FileText, Package, Upload, Search, Edit2, Check, X,
-  User, Mail, Camera, LogOut,
+  FileText, User, Mail, Camera, LogOut,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -24,9 +23,7 @@ interface Branch { id: string; branch_name: string; inventory_api_url: string | 
 interface Employee { id: string; employee_name: string; user_id: string; branch_id: string | null; is_active: boolean; }
 interface SessionRow { id: string; session_code: string; state: string; total_amount: number; payment_method: string | null; created_at: string; user_id: string; }
 interface AuditLog { id: string; action: string; user_id: string | null; session_id: string | null; details: any; created_at: string; }
-interface Product { id: string; branch_id: string; barcode: string; title: string; brand: string | null; category: string | null; price: number; stock: number; image_url: string | null; is_active: boolean; }
-
-type Tab = 'details' | 'branches' | 'employees' | 'config' | 'analytics' | 'history' | 'audit' | 'inventory' | 'profile';
+type Tab = 'details' | 'branches' | 'employees' | 'config' | 'analytics' | 'history' | 'audit' | 'profile';
 
 const CHART_COLORS = ['hsl(160, 60%, 30%)', 'hsl(38, 92%, 55%)', 'hsl(200, 70%, 50%)', 'hsl(280, 60%, 55%)', 'hsl(0, 72%, 51%)'];
 const STATE_BADGE: Record<string, string> = {
@@ -63,13 +60,6 @@ const AdminDashboard = () => {
   // Audit
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
 
-  // Inventory
-  const [products, setProducts] = useState<Product[]>([]);
-  const [selectedBranch, setSelectedBranch] = useState<string>('');
-  const [productSearch, setProductSearch] = useState('');
-  const [newProduct, setNewProduct] = useState({ barcode: '', title: '', brand: '', category: '', price: '', stock: '', image_url: '' });
-  const [editingProduct, setEditingProduct] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<Partial<Product>>({});
 
   // Profile settings
   const [profileName, setProfileName] = useState(authProfile?.display_name || '');
@@ -87,7 +77,7 @@ const AdminDashboard = () => {
       setPayFromApp(data.customer_pay_from_app);
       const { data: b } = await supabase.from('branches').select('*').eq('mart_id', data.id);
       setBranches((b || []) as Branch[]);
-      if (b && b.length > 0 && !selectedBranch) setSelectedBranch(b[0].id);
+      
       const { data: e } = await supabase.from('employees').select('*').eq('mart_id', data.id);
       setEmployees((e || []) as Employee[]);
       const { data: sess } = await supabase.from('sessions').select('id, session_code, state, total_amount, payment_method, created_at, user_id').eq('mart_id', data.id).order('created_at', { ascending: false });
@@ -112,12 +102,6 @@ const AdminDashboard = () => {
       .then(({ data }) => setAuditLogs((data || []) as AuditLog[]));
   }, [tab, user]);
 
-  // Fetch products when branch selected
-  useEffect(() => {
-    if (tab !== 'inventory' || !selectedBranch) return;
-    supabase.from('products').select('*').eq('branch_id', selectedBranch).order('created_at', { ascending: false })
-      .then(({ data }) => setProducts((data || []) as Product[]));
-  }, [tab, selectedBranch]);
 
   // Analytics data
   const paidSessions = allSessions.filter(s => s.state === 'PAID' || s.state === 'CLOSED');
@@ -170,45 +154,13 @@ const AdminDashboard = () => {
     } catch (e: any) { toast.error(e.message || 'Invalid JSON'); }
   };
 
-  // Inventory CRUD
-  const addProduct = async () => {
-    if (!selectedBranch || !newProduct.barcode.trim() || !newProduct.title.trim()) return;
-    const { error } = await supabase.from('products').insert({
-      branch_id: selectedBranch, barcode: newProduct.barcode.trim(), title: newProduct.title.trim(),
-      brand: newProduct.brand.trim() || null, category: newProduct.category.trim() || null,
-      price: parseFloat(newProduct.price) || 0, stock: parseInt(newProduct.stock) || 0,
-      image_url: newProduct.image_url.trim() || null,
-    });
-    if (error) { toast.error(error.message); return; }
-    toast.success('Product added');
-    setNewProduct({ barcode: '', title: '', brand: '', category: '', price: '', stock: '', image_url: '' });
-    supabase.from('products').select('*').eq('branch_id', selectedBranch).order('created_at', { ascending: false })
-      .then(({ data }) => setProducts((data || []) as Product[]));
-  };
-
-  const startEdit = (p: Product) => { setEditingProduct(p.id); setEditForm({ title: p.title, price: p.price, stock: p.stock, is_active: p.is_active }); };
-  const saveEdit = async (id: string) => {
-    const { error } = await supabase.from('products').update(editForm).eq('id', id);
-    if (error) { toast.error(error.message); return; }
-    setProducts(prev => prev.map(p => p.id === id ? { ...p, ...editForm } as Product : p));
-    setEditingProduct(null); toast.success('Product updated');
-  };
-  const deleteProduct = async (id: string) => {
-    await supabase.from('products').delete().eq('id', id);
-    setProducts(prev => prev.filter(p => p.id !== id)); toast.success('Product removed');
-  };
-
-  const filteredProducts = products.filter(p =>
-    p.title.toLowerCase().includes(productSearch.toLowerCase()) ||
-    p.barcode.includes(productSearch)
-  );
 
   if (loading) return <div className="flex min-h-screen items-center justify-center bg-background"><div className="h-8 w-8 animate-spin rounded-full border-4 border-primary/30 border-t-primary" /></div>;
 
   const TABS: { key: Tab; label: string; icon: any }[] = [
     { key: 'details', label: 'Overview', icon: Store },
     { key: 'analytics', label: 'Analytics', icon: BarChart3 },
-    { key: 'inventory', label: 'Products', icon: Package },
+    
     { key: 'history', label: 'Sessions', icon: History },
     { key: 'audit', label: 'Audit', icon: FileText },
     { key: 'branches', label: 'Branches', icon: MapPin },
@@ -315,99 +267,6 @@ const AdminDashboard = () => {
                   <div className="rounded-xl border border-border bg-card p-4 text-center"><p className="text-sm text-muted-foreground">Avg. Cart Value</p><p className="text-xl font-bold text-foreground">₹{paidSessions.length > 0 ? (totalRevenue / paidSessions.length).toFixed(2) : '0'}</p></div>
                   <div className="rounded-xl border border-border bg-card p-4 text-center"><p className="text-sm text-muted-foreground">Total Sessions</p><p className="text-xl font-bold text-foreground">{allSessions.length}</p></div>
                   <div className="rounded-xl border border-border bg-card p-4 text-center"><p className="text-sm text-muted-foreground">Conversion Rate</p><p className="text-xl font-bold text-foreground">{allSessions.length > 0 ? ((paidSessions.length / allSessions.length) * 100).toFixed(1) : '0'}%</p></div>
-                </div>
-              </div>
-            )}
-
-            {/* Inventory / Products */}
-            {tab === 'inventory' && (
-              <div className="space-y-6">
-                {/* Branch selector */}
-                <div className="flex flex-wrap items-center gap-3">
-                  <span className="text-sm font-medium text-foreground">Branch:</span>
-                  {branches.map(b => (
-                    <Button key={b.id} variant={selectedBranch === b.id ? 'default' : 'outline'} size="sm"
-                      className={selectedBranch === b.id ? 'gradient-primary border-0 text-primary-foreground' : ''}
-                      onClick={() => setSelectedBranch(b.id)}>
-                      {b.branch_name}
-                    </Button>
-                  ))}
-                </div>
-
-                {/* Search */}
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input placeholder="Search by name or barcode..." value={productSearch} onChange={e => setProductSearch(e.target.value)} className="pl-10" />
-                </div>
-
-                {/* Add product form */}
-                <div className="rounded-xl border border-border bg-card p-4">
-                  <h3 className="mb-3 font-semibold text-foreground flex items-center gap-2"><Plus className="h-4 w-4" /> Add Product</h3>
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                    <Input placeholder="Barcode *" value={newProduct.barcode} onChange={e => setNewProduct(p => ({ ...p, barcode: e.target.value }))} className="font-mono" />
-                    <Input placeholder="Product name *" value={newProduct.title} onChange={e => setNewProduct(p => ({ ...p, title: e.target.value }))} />
-                    <Input placeholder="Brand" value={newProduct.brand} onChange={e => setNewProduct(p => ({ ...p, brand: e.target.value }))} />
-                    <Input placeholder="Category" value={newProduct.category} onChange={e => setNewProduct(p => ({ ...p, category: e.target.value }))} />
-                    <Input placeholder="Price *" type="number" step="0.01" value={newProduct.price} onChange={e => setNewProduct(p => ({ ...p, price: e.target.value }))} />
-                    <Input placeholder="Stock" type="number" value={newProduct.stock} onChange={e => setNewProduct(p => ({ ...p, stock: e.target.value }))} />
-                    <Input placeholder="Image URL" value={newProduct.image_url} onChange={e => setNewProduct(p => ({ ...p, image_url: e.target.value }))} className="sm:col-span-2" />
-                  </div>
-                  <Button onClick={addProduct} disabled={!newProduct.barcode.trim() || !newProduct.title.trim()} className="mt-3 gradient-primary border-0 text-primary-foreground">
-                    <Plus className="mr-2 h-4 w-4" /> Add Product
-                  </Button>
-                </div>
-
-                {/* Product list */}
-                <div className="space-y-2">
-                  <p className="text-sm text-muted-foreground">{filteredProducts.length} products</p>
-                  {filteredProducts.map(p => (
-                    <div key={p.id} className="flex items-center gap-3 rounded-xl border border-border bg-card p-3">
-                      {p.image_url ? (
-                        <img src={p.image_url} alt="" className="h-12 w-12 rounded-lg object-cover" />
-                      ) : (
-                        <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-muted"><Package className="h-5 w-5 text-muted-foreground" /></div>
-                      )}
-                      <div className="flex-1 min-w-0">
-                        {editingProduct === p.id ? (
-                          <div className="flex flex-wrap gap-2">
-                            <Input className="h-8 w-40" value={editForm.title || ''} onChange={e => setEditForm(f => ({ ...f, title: e.target.value }))} />
-                            <Input className="h-8 w-20" type="number" step="0.01" value={editForm.price ?? ''} onChange={e => setEditForm(f => ({ ...f, price: parseFloat(e.target.value) }))} />
-                            <Input className="h-8 w-20" type="number" value={editForm.stock ?? ''} onChange={e => setEditForm(f => ({ ...f, stock: parseInt(e.target.value) }))} />
-                          </div>
-                        ) : (
-                          <>
-                            <p className="truncate text-sm font-medium text-foreground">{p.title}</p>
-                            <p className="text-xs text-muted-foreground font-mono">{p.barcode} {p.brand && `· ${p.brand}`}</p>
-                          </>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {editingProduct !== p.id && (
-                          <>
-                            <span className="text-sm font-semibold text-primary">₹{p.price}</span>
-                            <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{p.stock} in stock</span>
-                          </>
-                        )}
-                        {editingProduct === p.id ? (
-                          <>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-primary" onClick={() => saveEdit(p.id)}><Check className="h-4 w-4" /></Button>
-                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditingProduct(null)}><X className="h-4 w-4" /></Button>
-                          </>
-                        ) : (
-                          <>
-                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => startEdit(p)}><Edit2 className="h-3.5 w-3.5" /></Button>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => deleteProduct(p.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                  {filteredProducts.length === 0 && (
-                    <div className="rounded-xl border border-border bg-card p-8 text-center">
-                      <Package className="mx-auto mb-3 h-10 w-10 text-muted-foreground" />
-                      <p className="text-muted-foreground">{productSearch ? 'No matching products' : 'No products yet. Add your first product above.'}</p>
-                    </div>
-                  )}
                 </div>
               </div>
             )}
