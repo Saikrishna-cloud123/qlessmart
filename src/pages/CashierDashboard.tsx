@@ -56,6 +56,10 @@ const CashierDashboard = () => {
   const [scanInput, setScanInput] = useState('');
   const [addBarcode, setAddBarcode] = useState('');
   const [addingItem, setAddingItem] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [profileName, setProfileName] = useState(profile?.display_name || '');
+  const [profileAvatar, setProfileAvatar] = useState(profile?.avatar_url || '');
+  const [savingProfile, setSavingProfile] = useState(false);
 
   // Get employee's mart
   const [employeeMartId, setEmployeeMartId] = useState<string | null>(null);
