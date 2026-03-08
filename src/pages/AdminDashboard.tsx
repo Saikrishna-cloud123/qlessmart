@@ -36,7 +36,7 @@ const STATE_BADGE: Record<string, string> = {
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, profile: authProfile, updateProfile, signOut } = useAuth();
   const [mart, setMart] = useState<Mart | null>(null);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
