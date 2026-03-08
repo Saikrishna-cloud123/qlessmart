@@ -219,7 +219,18 @@ const ExitScan = () => {
             </Button>
             <div>
               <h1 className="text-xl font-bold text-foreground">Exit Validation</h1>
-              <p className="text-sm text-muted-foreground">Scan receipt QR & verify cart hash</p>
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                {martName && (
+                  <span className="flex items-center gap-1">
+                    <Store className="h-3.5 w-3.5" /> {martName}
+                  </span>
+                )}
+                {branchName && (
+                  <span className="flex items-center gap-1">
+                    <MapPin className="h-3.5 w-3.5" /> {branchName}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
           <Shield className="h-6 w-6 text-primary" />
