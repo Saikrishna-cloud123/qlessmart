@@ -29,7 +29,7 @@ Open: `http://localhost:5173`
 - [ ] Run `npm ci`
 - [ ] Run `npm run dev`
 - [ ] Run `npm run build`
-- [ ] Run `npm run test`
+- [ ] Run `npm run test` (currently a minimal smoke test)
 
 </details>
 
