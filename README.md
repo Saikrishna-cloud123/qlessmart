@@ -43,7 +43,7 @@ npm run test       # Run tests (Vitest)
 npm run lint       # Lint codebase (ESLint)
 ```
 
-Current test suite: a basic Vitest smoke test under `/src/test` (this repository currently uses singular `test`) to validate the test runner setup.
+Current test suite: a basic Vitest smoke test in `/src/test` to validate the test runner setup.
 
 ## Environment Variables
 
