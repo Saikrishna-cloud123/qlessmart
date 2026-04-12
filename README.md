@@ -24,12 +24,12 @@ Open: `http://localhost:5173`
 <details>
 <summary><strong>First-time setup checklist</strong></summary>
 
-- [ ] Install Node.js 18+ and npm
+- [ ] Install Node.js 18+ (npm is bundled)
 - [ ] Add required `.env` variables (see [Environment Variables](#environment-variables))
 - [ ] Run `npm ci`
 - [ ] Run `npm run dev`
 - [ ] Run `npm run build`
-- [ ] Run `npm run test` (currently a minimal smoke test)
+- [ ] Run `npm run test`
 
 </details>
 
