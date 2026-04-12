@@ -1,73 +1,87 @@
-# Welcome to your Lovable project
+# qlessmart
 
-## Project info
+Smart checkout and store-session web app built with React + Vite + Firebase + Vercel serverless APIs.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+## Quick Navigation
 
-## How can I edit this code?
+- [Getting Started](#getting-started)
+- [Scripts](#scripts)
+- [Environment Variables](#environment-variables)
+- [Security Notes](#security-notes)
+- [Tech Stack](#tech-stack)
 
-There are several ways of editing your application.
+## Getting Started
 
-**Use Lovable**
-
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
-
-Changes made via Lovable will be committed automatically to this repo.
-
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
+```bash
 git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
+cd qlessmart
+npm ci
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+Open: `http://localhost:5173`
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+<details>
+<summary><strong>First-time setup checklist</strong></summary>
 
-**Use GitHub Codespaces**
+- [ ] Install Node.js 18+ and npm
+- [ ] Add required `.env` variables
+- [ ] Run `npm ci`
+- [ ] Run `npm run dev`
+- [ ] Run `npm run build`
+- [ ] Run `npm run test`
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+</details>
 
-## What technologies are used for this project?
+## Scripts
 
-This project is built with:
+```bash
+npm run dev        # Start local dev server
+npm run build      # Production build
+npm run preview    # Preview built app
+npm run test       # Run tests (Vitest)
+npm run lint       # Lint codebase (ESLint)
+```
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+## Environment Variables
 
-## How can I deploy this project?
+Create a `.env` file in the project root.
 
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
+<details>
+<summary><strong>Client (Vite) variables</strong></summary>
 
-## Can I connect a custom domain to my Lovable project?
+- `VITE_FIREBASE_API_KEY`
+- `VITE_FIREBASE_AUTH_DOMAIN`
+- `VITE_FIREBASE_PROJECT_ID`
+- `VITE_FIREBASE_STORAGE_BUCKET`
+- `VITE_FIREBASE_MESSAGING_SENDER_ID`
+- `VITE_FIREBASE_APP_ID`
 
-Yes, you can!
+</details>
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+<details>
+<summary><strong>Server/API variables (Vercel functions)</strong></summary>
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+- `FIREBASE_ADMIN_PROJECT_ID`
+- `FIREBASE_ADMIN_CLIENT_EMAIL`
+- `FIREBASE_ADMIN_PRIVATE_KEY`
+- `RAZORPAY_KEY_ID`
+- `RAZORPAY_KEY_SECRET`
+- `RESEND_API_KEY`
+
+</details>
+
+## Security Notes
+
+- A repository scan was performed for exposed secrets/patterns.
+- No hardcoded API keys/private secrets were found in tracked source files.
+- Secrets are expected via environment variables (`.env*` is already gitignored).
+- Never commit real credentials into code, screenshots, or docs.
+
+## Tech Stack
+
+- React + TypeScript + Vite
+- Tailwind CSS + shadcn/ui
+- Firebase (Auth + Firestore)
+- Vercel serverless API routes
+- Vitest + ESLint
