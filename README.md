@@ -25,7 +25,7 @@ Open: `http://localhost:5173`
 <summary><strong>First-time setup checklist</strong></summary>
 
 - [ ] Install Node.js 18+ and npm
-- [ ] Add required `.env` variables
+- [ ] Add required `.env` variables (see [Environment Variables](#environment-variables))
 - [ ] Run `npm ci`
 - [ ] Run `npm run dev`
 - [ ] Run `npm run build`
@@ -42,6 +42,8 @@ npm run preview    # Preview built app
 npm run test       # Run tests (Vitest)
 npm run lint       # Lint codebase (ESLint)
 ```
+
+Current test suite: a basic Vitest smoke test under `/src/test` to validate the test runner setup.
 
 ## Environment Variables
 
