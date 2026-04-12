@@ -6,7 +6,8 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { supabase } from '@/integrations/supabase/client';
+import { db } from '@/integrations/firebase/firebase';
+import { collection, addDoc, updateDoc, doc, getDoc, setDoc } from 'firebase/firestore';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
 import { z } from 'zod';
@@ -59,24 +60,29 @@ const RegisterMart = () => {
     if (!user) return;
     setLoading(true);
 
-    const { data, error } = await supabase.from('marts').insert({
-      name: result.data.name,
-      owner_id: user.id,
-      config: JSON.parse(JSON.stringify(DEFAULT_STORE_CONFIG)),
-    }).select().single();
+    try {
+      const martRef = await addDoc(collection(db, 'marts'), {
+        name: result.data.name,
+        owner_id: user.uid,
+        config: JSON.parse(JSON.stringify(DEFAULT_STORE_CONFIG)),
+      });
 
-    if (error) {
+      // Explicitly assign admin role to the owner in Firestore
+      await setDoc(doc(db, 'user_roles', `${user.uid}_admin`), {
+        user_id: user.uid,
+        role: 'admin',
+        assigned_at: new Date().toISOString()
+      });
+
+      await refreshRoles();
+      setMartId(martRef.id);
+      toast.success('Store created!');
+      setStep('branch');
+    } catch(error: any) {
       toast.error(error.message);
+    } finally {
       setLoading(false);
-      return;
     }
-
-    // Admin role is auto-assigned by database trigger on mart creation
-    await refreshRoles();
-    setMartId(data.id);
-    toast.success('Store created!');
-    setStep('branch');
-    setLoading(false);
   };
 
   const addBranch = async () => {
@@ -88,23 +94,22 @@ const RegisterMart = () => {
     if (!martId) return;
     setLoading(true);
 
-    const { error } = await supabase.from('branches').insert({
-      mart_id: martId,
-      branch_name: branchName.trim(),
-      inventory_api_url: branchUrl.trim() || null,
-      address: branchAddr.trim() || null,
-      is_default: true,
-    });
+    try {
+      await addDoc(collection(db, 'branches'), {
+        mart_id: martId,
+        branch_name: branchName.trim(),
+        inventory_api_url: branchUrl.trim() || null,
+        address: branchAddr.trim() || null,
+        is_default: true,
+      });
 
-    if (error) {
+      toast.success('Branch added!');
+      setStep('config');
+    } catch(error: any) {
       toast.error(error.message);
+    } finally {
       setLoading(false);
-      return;
     }
-
-    toast.success('Branch added!');
-    setStep('config');
-    setLoading(false);
   };
 
   const saveConfig = async () => {
@@ -133,22 +138,21 @@ const RegisterMart = () => {
       security: { cart_hash_algorithm: 'SHA256' as const },
     };
 
-    const { error } = await supabase.from('marts').update({
-      config: JSON.parse(JSON.stringify(config)),
-      upi_id: upiId.trim() || null,
-      merchant_name: merchantName.trim() || null,
-      customer_pay_from_app: payFromApp,
-    }).eq('id', martId);
+    try {
+      await updateDoc(doc(db, 'marts', martId), {
+        config: JSON.parse(JSON.stringify(config)),
+        upi_id: upiId.trim() || null,
+        merchant_name: merchantName.trim() || null,
+        customer_pay_from_app: payFromApp,
+      });
 
-    if (error) {
+      toast.success('Configuration saved!');
+      setStep('done');
+    } catch(error: any) {
       toast.error(error.message);
+    } finally {
       setLoading(false);
-      return;
     }
-
-    toast.success('Configuration saved!');
-    setStep('done');
-    setLoading(false);
   };
 
   const STEPS = [

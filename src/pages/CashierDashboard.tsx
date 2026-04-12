@@ -12,7 +12,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { supabase } from '@/integrations/supabase/client';
+import { db } from '@/integrations/firebase/firebase';
+import { collection, query, where, getDocs, getDoc, doc, updateDoc, addDoc, limit, onSnapshot, orderBy, deleteDoc } from 'firebase/firestore';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -85,34 +86,36 @@ const CashierDashboard = () => {
 
   useEffect(() => {
     if (!user) return;
-    supabase.from('employees').select('mart_id, branch_id').eq('user_id', user.id).eq('is_active', true).limit(1).single()
-      .then(async ({ data }) => {
-        if (data) {
-          setEmployeeMartId(data.mart_id);
-          // Load mart & branch details
-          const { data: mart } = await supabase.from('marts').select('name, logo_url').eq('id', data.mart_id).maybeSingle();
-          if (mart) setMartName(mart.name);
-          if (data.branch_id) {
-            const { data: branch } = await supabase.from('branches').select('branch_name, address').eq('id', data.branch_id).maybeSingle();
-            if (branch) {
-              setBranchName(branch.branch_name);
-              setBranchAddress(branch.address || '');
-            }
+    const q = query(collection(db, 'employees'), where('user_id', '==', user.uid), where('is_active', '==', true), limit(1));
+    getDocs(q).then(async (snapshot) => {
+      if (!snapshot.empty) {
+        const data = snapshot.docs[0].data();
+        setEmployeeMartId(data.mart_id);
+        const martDoc = await getDoc(doc(db, 'marts', data.mart_id));
+        if (martDoc.exists()) setMartName(martDoc.data().name);
+        
+        if (data.branch_id) {
+          const branchDoc = await getDoc(doc(db, 'branches', data.branch_id));
+          if (branchDoc.exists()) {
+            setBranchName(branchDoc.data().branch_name);
+            setBranchAddress(branchDoc.data().address || '');
           }
         }
-      });
+      }
+    });
   }, [user]);
 
   /* ── Fetch sessions ── */
   const fetchSessions = useCallback(async () => {
     if (!employeeMartId) return;
-    const { data } = await supabase
-      .from('sessions')
-      .select('*')
-      .eq('mart_id', employeeMartId)
-      .in('state', ['LOCKED', 'VERIFIED', 'PAID'])
-      .order('created_at', { ascending: false });
-    if (data) setSessions(data as SessionRow[]);
+    const q = query(
+      collection(db, 'sessions'),
+      where('mart_id', '==', employeeMartId),
+      where('state', 'in', ['LOCKED', 'VERIFIED', 'PAID']),
+      orderBy('created_at', 'desc')
+    );
+    const snapshot = await getDocs(q);
+    setSessions(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as SessionRow)));
   }, [employeeMartId]);
 
   useEffect(() => { fetchSessions(); }, [fetchSessions]);
@@ -120,14 +123,9 @@ const CashierDashboard = () => {
   /* ── Realtime ── */
   useEffect(() => {
     if (!employeeMartId) return;
-    const channel = supabase
-      .channel('cashier-sessions')
-      .on('postgres_changes', {
-        event: '*', schema: 'public', table: 'sessions',
-        filter: `mart_id=eq.${employeeMartId}`,
-      }, () => { fetchSessions(); })
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    const q = query(collection(db, 'sessions'), where('mart_id', '==', employeeMartId));
+    const unsubscribe = onSnapshot(q, () => { fetchSessions(); });
+    return () => unsubscribe();
   }, [employeeMartId, fetchSessions]);
 
   /* ── Analytics data ── */
@@ -139,46 +137,45 @@ const CashierDashboard = () => {
       const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6).toISOString();
 
       // Today's stats
-      const { data: todaySessions } = await supabase
-        .from('sessions')
-        .select('total_amount')
-        .eq('mart_id', employeeMartId)
-        .in('state', ['PAID', 'CLOSED'] as any)
-        .gte('created_at', todayStart);
+      const qToday = query(
+        collection(db, 'sessions'),
+        where('mart_id', '==', employeeMartId),
+        where('state', 'in', ['PAID', 'CLOSED']),
+        where('created_at', '>=', todayStart)
+      );
+      const todaySnap = await getDocs(qToday);
 
-      if (todaySessions) {
-        setTodaysBills(todaySessions.length);
-        setTodaysRevenue(todaySessions.reduce((s, r) => s + Number(r.total_amount), 0));
-      }
+      setTodaysBills(todaySnap.docs.length);
+      setTodaysRevenue(todaySnap.docs.reduce((s, r) => s + Number(r.data().total_amount || 0), 0));
 
       // Week data for chart
-      const { data: weekSessions } = await supabase
-        .from('sessions')
-        .select('total_amount, created_at')
-        .eq('mart_id', employeeMartId)
-        .in('state', ['PAID', 'CLOSED'] as any)
-        .gte('created_at', weekStart)
-        .order('created_at', { ascending: true });
+      const qWeek = query(
+        collection(db, 'sessions'),
+        where('mart_id', '==', employeeMartId),
+        where('state', 'in', ['PAID', 'CLOSED']),
+        where('created_at', '>=', weekStart),
+        orderBy('created_at', 'asc')
+      );
+      const weekSnap = await getDocs(qWeek);
 
-      if (weekSessions) {
-        setWeekRevenue(weekSessions.reduce((s, r) => s + Number(r.total_amount), 0));
-        // Group by day
-        const grouped: Record<string, { revenue: number; bills: number }> = {};
-        for (let i = 6; i >= 0; i--) {
-          const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
-          const key = d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric' });
-          grouped[key] = { revenue: 0, bills: 0 };
-        }
-        weekSessions.forEach(s => {
-          const d = new Date(s.created_at);
-          const key = d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric' });
-          if (grouped[key]) {
-            grouped[key].revenue += Number(s.total_amount);
-            grouped[key].bills += 1;
-          }
-        });
-        setDailyData(Object.entries(grouped).map(([date, v]) => ({ date, ...v })));
+      setWeekRevenue(weekSnap.docs.reduce((s, r) => s + Number(r.data().total_amount || 0), 0));
+      // Group by day
+      const grouped: Record<string, { revenue: number; bills: number }> = {};
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+        const key = d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric' });
+        grouped[key] = { revenue: 0, bills: 0 };
       }
+      weekSnap.docs.forEach(docSnap => {
+        const s = docSnap.data();
+        const d = new Date(s.created_at);
+        const key = d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric' });
+        if (grouped[key]) {
+          grouped[key].revenue += Number(s.total_amount || 0);
+          grouped[key].bills += 1;
+        }
+      });
+      setDailyData(Object.entries(grouped).map(([date, v]) => ({ date, ...v })));
     };
     loadAnalytics();
   }, [employeeMartId, sessions]);
@@ -187,27 +184,40 @@ const CashierDashboard = () => {
   const loadSessionDetail = useCallback(async (sess: SessionRow) => {
     setSelectedSession(sess);
     setActiveTab('billing');
-    const { data: items } = await supabase.from('cart_items').select('*').eq('session_id', sess.id);
-    setSessionItems((items || []) as CartItem[]);
-    const { data: prof } = await supabase.from('profiles').select('display_name').eq('id', sess.user_id).single();
-    setCustomerName(prof?.display_name || 'Customer');
+    const itemsQuery = query(collection(db, 'cart_items'), where('session_id', '==', sess.id));
+    const itemsSnap = await getDocs(itemsQuery);
+    setSessionItems(itemsSnap.docs.map(d => ({ id: d.id, ...d.data() } as CartItem)));
+    
+    const profDoc = await getDoc(doc(db, 'profiles', sess.user_id));
+    if (profDoc.exists()) setCustomerName(profDoc.data().display_name || 'Customer');
+    else setCustomerName('Customer');
   }, []);
 
   /* ── QR Scan ── */
   const handleScanQR = async () => {
     const input = scanInput.trim();
     if (!input) return;
-    const { data } = await supabase
-      .from('sessions')
-      .select('*')
-      .or(`id.eq.${input},session_code.eq.${input}`)
-      .maybeSingle();
+    
+    // Check if input is a valid document ID
+    const sessRef = doc(db, 'sessions', input);
+    let sessionData: any = null;
+    try {
+      const sessDoc = await getDoc(sessRef);
+      if (sessDoc.exists()) sessionData = { id: sessDoc.id, ...sessDoc.data() };
+    } catch(e) {}
 
-    if (data && data.state === 'LOCKED') {
-      loadSessionDetail(data as SessionRow);
+    // If not found by ID, check by session_code
+    if (!sessionData) {
+      const q = query(collection(db, 'sessions'), where('session_code', '==', input), limit(1));
+      const scanSnap = await getDocs(q);
+      if (!scanSnap.empty) sessionData = { id: scanSnap.docs[0].id, ...scanSnap.docs[0].data() };
+    }
+
+    if (sessionData && sessionData.state === 'LOCKED') {
+      loadSessionDetail(sessionData as SessionRow);
       setScanInput('');
-    } else if (data) {
-      toast.error(`Session state is ${data.state}`);
+    } else if (sessionData) {
+      toast.error(`Session state is ${sessionData.state}`);
     } else {
       toast.error('Session not found');
     }
@@ -228,20 +238,27 @@ const CashierDashboard = () => {
             setScanInput(decodedText);
             setQrScannerActive(false);
             // Auto-lookup
-            supabase
-              .from('sessions')
-              .select('*')
-              .or(`id.eq.${decodedText},session_code.eq.${decodedText}`)
-              .maybeSingle()
-              .then(({ data }) => {
-                if (data && data.state === 'LOCKED') {
-                  loadSessionDetail(data as SessionRow);
-                } else if (data) {
-                  toast.error(`Session state is ${data.state}`);
-                } else {
-                  toast.error('Session not found');
-                }
-              });
+            (async () => {
+              let sessionData: any = null;
+              try {
+                const sessDoc = await getDoc(doc(db, 'sessions', decodedText));
+                if (sessDoc.exists()) sessionData = { id: sessDoc.id, ...sessDoc.data() };
+              } catch(e) {}
+              
+              if (!sessionData) {
+                const q = query(collection(db, 'sessions'), where('session_code', '==', decodedText), limit(1));
+                const scanSnap = await getDocs(q);
+                if (!scanSnap.empty) sessionData = { id: scanSnap.docs[0].id, ...scanSnap.docs[0].data() };
+              }
+              
+              if (sessionData && sessionData.state === 'LOCKED') {
+                loadSessionDetail(sessionData as SessionRow);
+              } else if (sessionData) {
+                toast.error(`Session state is ${sessionData.state}`);
+              } else {
+                toast.error('Session not found');
+              }
+            })();
             html5QrCode.pause();
           },
           () => {}
@@ -258,20 +275,23 @@ const CashierDashboard = () => {
   /* ── Cart actions ── */
   const verifyCart = async () => {
     if (!selectedSession || !user) return;
-    const { error } = await supabase
-      .from('sessions')
-      .update({ state: 'VERIFIED' as any, verified_by: user.id, verified_at: new Date().toISOString() })
-      .eq('id', selectedSession.id)
-      .eq('state', 'LOCKED' as any);
-    if (error) { toast.error('Failed to verify'); return; }
-    toast.success('Cart verified!');
-    setSelectedSession(prev => prev ? { ...prev, state: 'VERIFIED', verified_by: user.id } : null);
-    fetchSessions();
+    try {
+      await updateDoc(doc(db, 'sessions', selectedSession.id), {
+        state: 'VERIFIED',
+        verified_by: user.uid,
+        verified_at: new Date().toISOString()
+      });
+      toast.success('Cart verified!');
+      setSelectedSession(prev => prev ? { ...prev, state: 'VERIFIED', verified_by: user.uid } : null);
+      fetchSessions();
+    } catch(error) {
+      toast.error('Failed to verify');
+    }
   };
 
   const rejectCart = async () => {
     if (!selectedSession) return;
-    await supabase.from('sessions').update({ state: 'ACTIVE' as any, cart_hash: null }).eq('id', selectedSession.id);
+    await updateDoc(doc(db, 'sessions', selectedSession.id), { state: 'ACTIVE', cart_hash: null });
     toast.info('Cart rejected, returned to customer.');
     setSelectedSession(null);
     fetchSessions();
@@ -279,14 +299,14 @@ const CashierDashboard = () => {
 
   const markPaid = async () => {
     if (!selectedSession) return;
-    await supabase.from('payments').insert({
+    await addDoc(collection(db, 'payments'), {
       session_id: selectedSession.id,
       amount: selectedSession.total_amount,
       method: (selectedSession.payment_method || 'cash') as any,
       status: 'completed',
       paid_at: new Date().toISOString(),
     });
-    await supabase.from('invoices').insert({
+    await addDoc(collection(db, 'invoices'), {
       session_id: selectedSession.id,
       mart_id: selectedSession.mart_id,
       branch_id: selectedSession.branch_id,
@@ -296,19 +316,25 @@ const CashierDashboard = () => {
       total_amount: selectedSession.total_amount,
       total_quantity: sessionItems.reduce((s, i) => s + i.quantity, 0),
       payment_method: (selectedSession.payment_method || 'cash') as any,
+      created_at: new Date().toISOString(),
     });
-    await supabase.from('sessions').update({ state: 'PAID' as any }).eq('id', selectedSession.id);
+    await updateDoc(doc(db, 'sessions', selectedSession.id), { state: 'PAID' });
 
     try {
-      await supabase.functions.invoke('deliver-invoice', { body: { session_id: selectedSession.id } });
+      await fetch('/api/deliver-invoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: selectedSession.id })
+      });
     } catch (e) { console.log('Invoice delivery skipped:', e); }
 
     if (user) {
-      await supabase.from('audit_logs').insert({
+      await addDoc(collection(db, 'audit_logs'), {
         action: 'PAYMENT_COMPLETED',
-        user_id: user.id,
+        user_id: user.uid,
         session_id: selectedSession.id,
         details: { amount: selectedSession.total_amount, method: selectedSession.payment_method },
+        created_at: new Date().toISOString(),
       });
     }
     toast.success('Payment recorded & invoice generated!');
@@ -318,16 +344,16 @@ const CashierDashboard = () => {
 
   const updateItemQty = async (itemId: string, qty: number) => {
     if (qty <= 0) {
-      await supabase.from('cart_items').delete().eq('id', itemId);
+      await deleteDoc(doc(db, 'cart_items', itemId));
       setSessionItems(prev => prev.filter(i => i.id !== itemId));
     } else {
-      await supabase.from('cart_items').update({ quantity: qty }).eq('id', itemId);
+      await updateDoc(doc(db, 'cart_items', itemId), { quantity: qty });
       setSessionItems(prev => prev.map(i => i.id === itemId ? { ...i, quantity: qty } : i));
     }
     const newTotal = sessionItems
       .map(i => i.id === itemId ? (qty <= 0 ? 0 : i.price * qty) : i.price * i.quantity)
       .reduce((a, b) => a + b, 0);
-    await supabase.from('sessions').update({ total_amount: newTotal }).eq('id', selectedSession!.id);
+    await updateDoc(doc(db, 'sessions', selectedSession!.id), { total_amount: newTotal });
     setSelectedSession(prev => prev ? { ...prev, total_amount: newTotal } : null);
   };
 
@@ -335,29 +361,38 @@ const CashierDashboard = () => {
     if (!selectedSession || !addBarcode.trim()) return;
     setAddingItem(true);
     try {
-      const { data, error } = await supabase.functions.invoke('inventory-lookup', {
-        body: { barcode: addBarcode.trim(), branch_id: selectedSession.branch_id },
+      const res = await fetch('/api/inventory-lookup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ barcode: addBarcode.trim(), branch_id: selectedSession.branch_id })
       });
-      if (error || !data?.product) { toast.error('Product not found'); return; }
+      const data = await res.json();
+      if (!res.ok || !data?.product) { toast.error('Product not found'); return; }
+      
       const p = data.product;
-      const { data: newItem } = await supabase.from('cart_items').insert({
+      const newItemRef = await addDoc(collection(db, 'cart_items'), {
         session_id: selectedSession.id, barcode: p.barcode, title: p.title,
-        brand: p.brand, category: p.category, image_url: p.image_url, price: p.price, quantity: 1,
-      }).select().single();
-      if (newItem) {
-        setSessionItems(prev => [...prev, newItem as CartItem]);
+        brand: p.brand || null, category: p.category || null, image_url: p.image_url || null, price: p.price, quantity: 1,
+        added_at: new Date().toISOString(),
+      });
+      
+      const newItemSnap = await getDoc(newItemRef);
+      if (newItemSnap.exists()) {
+        setSessionItems(prev => [...prev, { id: newItemSnap.id, ...newItemSnap.data() } as CartItem]);
         const newTotal = selectedSession.total_amount + p.price;
-        await supabase.from('sessions').update({ total_amount: newTotal }).eq('id', selectedSession.id);
+        await updateDoc(doc(db, 'sessions', selectedSession.id), { total_amount: newTotal });
         setSelectedSession(prev => prev ? { ...prev, total_amount: newTotal } : null);
         toast.success(`Added: ${p.title}`);
         setAddBarcode('');
       }
+    } catch(e) {
+      toast.error('Error adding product');
     } finally { setAddingItem(false); }
   };
 
   const changePaymentMethod = async (method: string) => {
     if (!selectedSession) return;
-    await supabase.from('sessions').update({ payment_method: method as any }).eq('id', selectedSession.id);
+    await updateDoc(doc(db, 'sessions', selectedSession.id), { payment_method: method });
     setSelectedSession(prev => prev ? { ...prev, payment_method: method } : null);
     toast.success('Payment method updated');
   };

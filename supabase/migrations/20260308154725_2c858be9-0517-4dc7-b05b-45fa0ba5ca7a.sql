@@ -1,1 +1,0 @@
-UPDATE employees SET mart_id = 'eeb04574-e5b5-4461-a933-779a913522bc', branch_id = '48e0d8f1-d5e8-4100-bd8a-6a3fe9b92610' WHERE user_id = 'ab2035b0-c196-40df-b2ec-5711a603733c';

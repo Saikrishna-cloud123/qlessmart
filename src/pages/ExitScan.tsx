@@ -8,7 +8,8 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { supabase } from '@/integrations/supabase/client';
+import { db } from '@/integrations/firebase/firebase';
+import { collection, query, where, getDocs, getDoc, doc, updateDoc, addDoc, limit } from 'firebase/firestore';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
 import type { CartItem } from '@/hooks/useSession';
@@ -44,22 +45,31 @@ const ExitScan = () => {
 
   useEffect(() => {
     if (!user) return;
-    supabase.from('employees').select('mart_id, branch_id').eq('user_id', user.id).eq('is_active', true).limit(1).single()
-      .then(async ({ data }) => {
-        if (data) {
-          setEmployeeMartId(data.mart_id);
-          setEmployeeBranchId(data.branch_id);
-          const { data: mart } = await supabase.from('marts').select('name').eq('id', data.mart_id).maybeSingle();
-          if (mart) setMartName(mart.name);
-          if (data.branch_id) {
-            const { data: branch } = await supabase.from('branches').select('branch_name, address').eq('id', data.branch_id).maybeSingle();
-            if (branch) {
-              setBranchName(branch.branch_name);
-              setBranchAddress(branch.address || '');
-            }
+    const q = query(
+      collection(db, 'employees'), 
+      where('user_id', '==', user.uid), 
+      where('is_active', '==', true), 
+      limit(1)
+    );
+    
+    getDocs(q).then(async (snapshot) => {
+      if (!snapshot.empty) {
+        const data = snapshot.docs[0].data();
+        setEmployeeMartId(data.mart_id);
+        setEmployeeBranchId(data.branch_id);
+        
+        const martDoc = await getDoc(doc(db, 'marts', data.mart_id));
+        if (martDoc.exists()) setMartName(martDoc.data().name);
+        
+        if (data.branch_id) {
+          const branchDoc = await getDoc(doc(db, 'branches', data.branch_id));
+          if (branchDoc.exists()) {
+            setBranchName(branchDoc.data().branch_name);
+            setBranchAddress(branchDoc.data().address || '');
           }
         }
-      });
+      }
+    });
   }, [user]);
 
   // Recalculate SHA256 hash from cart items
@@ -80,20 +90,17 @@ const ExitScan = () => {
 
     const sessionId = code.replace('receipt:', '').trim();
 
-    const { data, error } = await supabase
-      .from('sessions')
-      .select('*')
-      .eq('id', sessionId)
-      .single();
+    const sessionRef = doc(db, 'sessions', sessionId);
+    const sessionSnap = await getDoc(sessionRef);
 
-    if (!data || error) {
+    if (!sessionSnap.exists()) {
       setVerifyResult('invalid');
       toast.error('Session not found');
       setLoading(false);
       return;
     }
 
-    const sess = data as SessionData;
+    const sess = { id: sessionSnap.id, ...sessionSnap.data() } as SessionData;
     setSession(sess);
 
     if (sess.state !== 'PAID') {
@@ -104,8 +111,9 @@ const ExitScan = () => {
     }
 
     // Load cart items and verify hash
-    const { data: items } = await supabase.from('cart_items').select('*').eq('session_id', sess.id);
-    const sessionItems = (items || []) as CartItem[];
+    const itemsQuery = query(collection(db, 'cart_items'), where('session_id', '==', sess.id));
+    const itemsSnap = await getDocs(itemsQuery);
+    const sessionItems = itemsSnap.docs.map(d => ({ id: d.id, ...d.data() } as CartItem));
     setCartItems(sessionItems);
 
     // Recompute hash and compare
@@ -118,19 +126,24 @@ const ExitScan = () => {
 
         // Audit log the mismatch
         if (user) {
-          await supabase.from('audit_logs').insert({
+          await addDoc(collection(db, 'audit_logs'), {
             action: 'CART_HASH_MISMATCH',
-            user_id: user.id,
+            user_id: user.uid,
             session_id: sess.id,
             details: { stored_hash: sess.cart_hash, computed_hash: computedHash },
+            created_at: new Date().toISOString()
           });
         }
         return;
       }
     }
 
-    const { data: prof } = await supabase.from('profiles').select('display_name').eq('id', sess.user_id).single();
-    setCustomerName(prof?.display_name || 'Customer');
+    const profDoc = await getDoc(doc(db, 'profiles', sess.user_id));
+    if (profDoc.exists()) {
+      setCustomerName(profDoc.data().display_name || 'Customer');
+    } else {
+      setCustomerName('Customer');
+    }
 
     setVerifyResult('valid');
     setLoading(false);
@@ -140,24 +153,22 @@ const ExitScan = () => {
     if (!session || !user) return;
     setLoading(true);
 
-    const { error } = await supabase
-      .from('sessions')
-      .update({ state: 'CLOSED' as any })
-      .eq('id', session.id)
-      .eq('state', 'PAID' as any);
+    try {
+      const sessionRef = doc(db, 'sessions', session.id);
+      await updateDoc(sessionRef, { state: 'CLOSED' });
 
-    if (error) {
+      await addDoc(collection(db, 'audit_logs'), {
+        action: 'EXIT_VALIDATED',
+        user_id: user.uid,
+        session_id: session.id,
+        details: { verified_by: user.uid, branch_id: employeeBranchId, cart_hash_verified: true },
+        created_at: new Date().toISOString()
+      });
+    } catch(error) {
       toast.error('Failed to close session');
       setLoading(false);
       return;
     }
-
-    await supabase.from('audit_logs').insert({
-      action: 'EXIT_VALIDATED',
-      user_id: user.id,
-      session_id: session.id,
-      details: { verified_by: user.id, branch_id: employeeBranchId, cart_hash_verified: true },
-    });
 
     toast.success('Exit validated! Customer may leave.');
     setSession(null);

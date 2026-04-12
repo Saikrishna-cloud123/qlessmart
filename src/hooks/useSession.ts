@@ -1,35 +1,16 @@
-import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { db } from '@/integrations/firebase/firebase';
+import { 
+  collection, query, where, getDocs, orderBy, limit, 
+  updateDoc, deleteDoc, doc, addDoc, onSnapshot, getDoc
+} from 'firebase/firestore';
 import { useAuth } from './useAuth';
 import { toast } from 'sonner';
 import type { StoreConfig } from '@/lib/storeConfig';
 import { DEFAULT_STORE_CONFIG } from '@/lib/storeConfig';
+import type { Session as ShoppingSession, CartItem } from '@/integrations/firebase/types';
 
-export interface CartItem {
-  id: string;
-  barcode: string;
-  title: string;
-  brand: string | null;
-  category: string | null;
-  image_url: string | null;
-  price: number;
-  quantity: number;
-}
-
-export interface ShoppingSession {
-  id: string;
-  session_code: string;
-  state: string;
-  mart_id: string;
-  branch_id: string;
-  total_amount: number;
-  cart_hash: string | null;
-  payment_method: string | null;
-  verified_by: string | null;
-  verified_at: string | null;
-  created_at: string;
-  config_snapshot: any;
-}
+export { type CartItem, type ShoppingSession };
 
 export function useSession() {
   const { user } = useAuth();
@@ -37,6 +18,8 @@ export function useSession() {
   const [items, setItems] = useState<CartItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [storeConfig, setStoreConfig] = useState<StoreConfig>(DEFAULT_STORE_CONFIG);
+  
+  const currentSessionId = useRef<string | null>(null);
 
   // Load store config — prefer session snapshot, fallback to mart config
   const loadStoreConfig = useCallback(async (martId: string, snapshot?: any) => {
@@ -44,11 +27,8 @@ export function useSession() {
       setStoreConfig({ ...DEFAULT_STORE_CONFIG, ...snapshot });
       return;
     }
-    const { data } = await supabase
-      .from('marts')
-      .select('config')
-      .eq('id', martId)
-      .single();
+    const martDoc = await getDoc(doc(db, 'marts', martId));
+    const data = martDoc.data();
     if (data?.config && typeof data.config === 'object') {
       setStoreConfig({ ...DEFAULT_STORE_CONFIG, ...(data.config as any) });
     }
@@ -57,27 +37,38 @@ export function useSession() {
   // Fetch active session for current user
   const fetchActiveSession = useCallback(async () => {
     if (!user) return;
-    const { data } = await supabase
-      .from('sessions')
-      .select('*')
-      .eq('user_id', user.id)
-      .in('state', ['ACTIVE', 'LOCKED', 'VERIFIED', 'PAID'])
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
-
-    if (data) {
-      setSession(data as ShoppingSession);
-      await loadStoreConfig(data.mart_id, (data as any).config_snapshot);
-      const { data: cartItems } = await supabase
-        .from('cart_items')
-        .select('*')
-        .eq('session_id', data.id)
-        .order('added_at', { ascending: true });
-      setItems((cartItems || []) as CartItem[]);
-    } else {
-      setSession(null);
-      setItems([]);
+    try {
+      const q = query(
+        collection(db, 'sessions'),
+        where('user_id', '==', user.uid),
+        where('state', 'in', ['ACTIVE', 'LOCKED', 'VERIFIED', 'PAID']),
+        orderBy('created_at', 'desc'),
+        limit(1)
+      );
+      
+      const querySnapshot = await getDocs(q);
+      
+      if (!querySnapshot.empty) {
+        const docSnap = querySnapshot.docs[0];
+        const sessionData = { id: docSnap.id, ...docSnap.data() } as ShoppingSession;
+        setSession(sessionData);
+        currentSessionId.current = sessionData.id;
+        await loadStoreConfig(sessionData.mart_id, docSnap.data().config_snapshot);
+        
+        const itemsQuery = query(
+          collection(db, 'cart_items'),
+          where('session_id', '==', docSnap.id),
+          orderBy('added_at', 'asc')
+        );
+        const itemsSnapshot = await getDocs(itemsQuery);
+        setItems(itemsSnapshot.docs.map(d => ({ id: d.id, ...d.data() }) as CartItem));
+      } else {
+        setSession(null);
+        currentSessionId.current = null;
+        setItems([]);
+      }
+    } catch (error) {
+      console.error("Error fetching session:", error);
     }
   }, [user, loadStoreConfig]);
 
@@ -94,100 +85,111 @@ export function useSession() {
 
     if (remaining <= 0) {
       toast.error('Your cart has expired due to inactivity.');
-      supabase.from('sessions').update({ state: 'CLOSED' as any }).eq('id', session.id).eq('state', 'ACTIVE' as any)
-        .then(() => { setSession(null); setItems([]); });
+      (async () => {
+        const sessionRef = doc(db, 'sessions', session.id);
+        const curDoc = await getDoc(sessionRef);
+        if (curDoc.exists() && curDoc.data().state === 'ACTIVE') {
+          await updateDoc(sessionRef, { state: 'CLOSED' });
+          setSession(null);
+          setItems([]);
+          currentSessionId.current = null;
+        }
+      })();
       return;
     }
 
     const timer = setTimeout(() => {
       toast.error('Your cart has expired due to inactivity.');
-      supabase.from('sessions').update({ state: 'CLOSED' as any }).eq('id', session.id).eq('state', 'ACTIVE' as any)
-        .then(() => { setSession(null); setItems([]); });
+      (async () => {
+        const sessionRef = doc(db, 'sessions', session.id);
+        const curDoc = await getDoc(sessionRef);
+        if (curDoc.exists() && curDoc.data().state === 'ACTIVE') {
+          await updateDoc(sessionRef, { state: 'CLOSED' });
+          setSession(null);
+          setItems([]);
+          currentSessionId.current = null;
+        }
+      })();
     }, remaining);
 
     return () => clearTimeout(timer);
   }, [session?.id, session?.state, session?.created_at, storeConfig.cart_timeout_minutes]);
 
-  // Phase 4: Realtime session state subscription
+  // Realtime session state subscription
   useEffect(() => {
-    if (!session) return;
-    const channel = supabase
-      .channel(`session-rt-${session.id}`)
-      .on('postgres_changes', {
-        event: 'UPDATE',
-        schema: 'public',
-        table: 'sessions',
-        filter: `id=eq.${session.id}`,
-      }, (payload) => {
-        setSession(prev => prev ? { ...prev, ...payload.new } as ShoppingSession : null);
-      })
-      .subscribe();
+    if (!currentSessionId.current) return;
+    
+    const unsubscribe = onSnapshot(doc(db, 'sessions', currentSessionId.current), (docSnap) => {
+      if (docSnap.exists()) {
+        setSession({ id: docSnap.id, ...docSnap.data() } as ShoppingSession);
+      } else {
+        setSession(null);
+        currentSessionId.current = null;
+      }
+    });
 
-    return () => { supabase.removeChannel(channel); };
-  }, [session?.id]);
+    return () => unsubscribe();
+  }, [currentSessionId.current]);
 
-  // Phase 4: Realtime cart items subscription
+  // Realtime cart items subscription
   useEffect(() => {
-    if (!session) return;
-    const channel = supabase
-      .channel(`cart-items-rt-${session.id}`)
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'cart_items',
-        filter: `session_id=eq.${session.id}`,
-      }, async () => {
-        // Refetch all items on any change
-        const { data } = await supabase
-          .from('cart_items')
-          .select('*')
-          .eq('session_id', session.id)
-          .order('added_at', { ascending: true });
-        if (data) setItems(data as CartItem[]);
-      })
-      .subscribe();
+    if (!currentSessionId.current) return;
+    
+    const itemsQuery = query(
+      collection(db, 'cart_items'),
+      where('session_id', '==', currentSessionId.current),
+      orderBy('added_at', 'asc')
+    );
+    
+    const unsubscribe = onSnapshot(itemsQuery, (snapshot) => {
+      setItems(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as CartItem)));
+    });
 
-    return () => { supabase.removeChannel(channel); };
-  }, [session?.id]);
+    return () => unsubscribe();
+  }, [currentSessionId.current]);
 
-  // Phase 5: Create session with config snapshot
   const createSession = useCallback(async (martId: string, branchId: string) => {
     if (!user) return null;
     setLoading(true);
     try {
-      // Load and snapshot config
-      const { data: martData } = await supabase
-        .from('marts')
-        .select('config')
-        .eq('id', martId)
-        .single();
+      const martDoc = await getDoc(doc(db, 'marts', martId));
+      const martData = martDoc.data();
       
       const configSnapshot = martData?.config && typeof martData.config === 'object'
-        ? { ...DEFAULT_STORE_CONFIG, ...(martData.config as any) }
+        ? { ...DEFAULT_STORE_CONFIG, ...martData.config }
         : DEFAULT_STORE_CONFIG;
       
       setStoreConfig(configSnapshot);
 
-      const { data, error } = await supabase
-        .from('sessions')
-        .insert({
-          user_id: user.id,
-          mart_id: martId,
-          branch_id: branchId,
-          session_code: 'TEMP',
-          config_snapshot: JSON.parse(JSON.stringify(configSnapshot)) as any,
-        })
-        .select()
-        .single();
+      const sessionCode = 'QLS-' + Math.random().toString(36).substring(2, 10).toUpperCase();
 
-      if (error) throw error;
+      const newSessionRef = await addDoc(collection(db, 'sessions'), {
+        user_id: user.uid,
+        mart_id: martId,
+        branch_id: branchId,
+        session_code: sessionCode,
+        config_snapshot: JSON.parse(JSON.stringify(configSnapshot)),
+        state: 'ACTIVE',
+        total_amount: 0,
+        payment_method: null,
+        cart_hash: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+      
+      const newSessionData = await getDoc(newSessionRef);
 
-      // Create cart record
-      await supabase.from('carts').insert({ session_id: data.id });
+      // Create cart record (as in supabase schema) - Note: not strictly necessary with nosql
+      await addDoc(collection(db, 'carts'), { 
+        session_id: newSessionRef.id,
+        created_at: new Date().toISOString()
+      });
 
-      setSession(data as ShoppingSession);
+      const sessionObj = { id: newSessionRef.id, ...newSessionData.data() } as ShoppingSession;
+      setSession(sessionObj);
+      currentSessionId.current = sessionObj.id;
       setItems([]);
-      return data;
+      return sessionObj;
     } catch (e: any) {
       toast.error(e.message);
       return null;
@@ -208,43 +210,46 @@ export function useSession() {
     try {
       const existing = items.find(i => i.barcode === barcode);
       if (existing) {
-        const { error } = await supabase
-          .from('cart_items')
-          .update({ quantity: existing.quantity + 1 })
-          .eq('id', existing.id);
-        if (error) throw error;
-        setItems(prev => prev.map(i => i.id === existing.id ? { ...i, quantity: i.quantity + 1 } : i));
+        await updateDoc(doc(db, 'cart_items', existing.id), { 
+          quantity: existing.quantity + 1 
+        });
+        // Realtime listener updates the item list
         await recalcTotal();
         return true;
       }
 
-      const { data, error } = await supabase.functions.invoke('inventory-lookup', {
-        body: { barcode, branch_id: session.branch_id },
+      // Vercel Serverless API fetch
+      const resp = await fetch('/api/inventory-lookup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ barcode, branch_id: session.branch_id })
       });
+      
+      if (!resp.ok) {
+        toast.error('Product not found');
+        return false;
+      }
+      const data = await resp.json();
 
-      if (error || !data?.product) {
+      if (!data?.product) {
         toast.error('Product not found');
         return false;
       }
 
       const product = data.product;
-      const { data: newItem, error: insertErr } = await supabase
-        .from('cart_items')
-        .insert({
-          session_id: session.id,
-          barcode: product.barcode,
-          title: product.title,
-          brand: product.brand,
-          category: product.category,
-          image_url: product.image_url,
-          price: product.price,
-          quantity: 1,
-        })
-        .select()
-        .single();
+      await addDoc(collection(db, 'cart_items'), {
+        session_id: session.id,
+        barcode: product.barcode,
+        title: product.title,
+        brand: product.brand || null,
+        category: product.category || null,
+        image_url: product.image_url || null,
+        price: product.price,
+        quantity: 1,
+        added_at: new Date().toISOString()
+      });
 
-      if (insertErr) throw insertErr;
-      setItems(prev => [...prev, newItem as CartItem]);
+      // Realtime subscription updates the local list
       await recalcTotal();
       toast.success(`Added: ${product.title}`);
       return true;
@@ -259,39 +264,35 @@ export function useSession() {
   const updateQuantity = useCallback(async (itemId: string, quantity: number) => {
     if (!session || session.state !== 'ACTIVE') return;
     if (quantity <= 0) {
-      await supabase.from('cart_items').delete().eq('id', itemId);
-      setItems(prev => prev.filter(i => i.id !== itemId));
+      await deleteDoc(doc(db, 'cart_items', itemId));
     } else {
-      await supabase.from('cart_items').update({ quantity }).eq('id', itemId);
-      setItems(prev => prev.map(i => i.id === itemId ? { ...i, quantity } : i));
+      await updateDoc(doc(db, 'cart_items', itemId), { quantity });
     }
     await recalcTotal();
   }, [session]);
 
   const removeItem = useCallback(async (itemId: string) => {
     if (!session || session.state !== 'ACTIVE') return;
-    await supabase.from('cart_items').delete().eq('id', itemId);
-    setItems(prev => prev.filter(i => i.id !== itemId));
+    await deleteDoc(doc(db, 'cart_items', itemId));
     await recalcTotal();
   }, [session]);
 
   const recalcTotal = useCallback(async () => {
     if (!session) return;
-    const { data: freshItems } = await supabase
-      .from('cart_items')
-      .select('*')
-      .eq('session_id', session.id);
-    const allItems = (freshItems || []) as CartItem[];
-    setItems(allItems);
-    const total = allItems.reduce((sum, i) => sum + i.price * i.quantity, 0);
-    await supabase.from('sessions').update({ total_amount: total }).eq('id', session.id);
-    setSession(prev => prev ? { ...prev, total_amount: total } : null);
+    // We compute locally as items change, but we should fetch fresh to be safe
+    const freshItemsQuery = query(collection(db, 'cart_items'), where('session_id', '==', session.id));
+    const freshItemsSnap = await getDocs(freshItemsQuery);
+    
+    const total = freshItemsSnap.docs.reduce((sum, d) => sum + (d.data().price * d.data().quantity), 0);
+    await updateDoc(doc(db, 'sessions', session.id), { 
+      total_amount: total,
+      updated_at: new Date().toISOString()
+    });
   }, [session]);
 
   const setPaymentMethod = useCallback(async (method: string) => {
     if (!session) return;
-    await supabase.from('sessions').update({ payment_method: method as any }).eq('id', session.id);
-    setSession(prev => prev ? { ...prev, payment_method: method } : null);
+    await updateDoc(doc(db, 'sessions', session.id), { payment_method: method });
   }, [session]);
 
   const lockCart = useCallback(async () => {
@@ -304,28 +305,34 @@ export function useSession() {
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     const cartHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 16).toUpperCase();
 
-    await supabase
-      .from('carts')
-      .update({ cart_hash: cartHash, locked_at: new Date().toISOString() })
-      .eq('session_id', session.id);
-
-    const { error } = await supabase
-      .from('sessions')
-      .update({ state: 'LOCKED' as any, cart_hash: cartHash })
-      .eq('id', session.id)
-      .eq('state', 'ACTIVE' as any);
-
-    if (error) {
-      toast.error('Failed to lock cart');
-      return;
+    // Query for carts associated with this session to update the cart hash
+    const cartQuery = query(collection(db, 'carts'), where('session_id', '==', session.id));
+    const cartSnap = await getDocs(cartQuery);
+    if (!cartSnap.empty) {
+      await updateDoc(doc(db, 'carts', cartSnap.docs[0].id), {
+        cart_hash: cartHash,
+        locked_at: new Date().toISOString()
+      });
     }
-    setSession(prev => prev ? { ...prev, state: 'LOCKED', cart_hash: cartHash } : null);
-    toast.success('Cart locked! Show QR to cashier.');
+
+    const sessionRef = doc(db, 'sessions', session.id);
+    const curDoc = await getDoc(sessionRef);
+    if (curDoc.exists() && curDoc.data().state === 'ACTIVE') {
+      await updateDoc(sessionRef, { 
+        state: 'LOCKED', 
+        cart_hash: cartHash,
+        updated_at: new Date().toISOString()
+      });
+      toast.success('Cart locked! Show QR to cashier.');
+    } else {
+      toast.error('Failed to lock cart');
+    }
   }, [session, items]);
 
   const endSession = useCallback(() => {
     setSession(null);
     setItems([]);
+    currentSessionId.current = null;
     setStoreConfig(DEFAULT_STORE_CONFIG);
   }, []);
 

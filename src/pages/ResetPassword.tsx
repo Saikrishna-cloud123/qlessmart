@@ -5,7 +5,8 @@ import { Lock, Eye, EyeOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { supabase } from '@/integrations/supabase/client';
+import { auth } from '@/integrations/firebase/firebase';
+import { confirmPasswordReset } from 'firebase/auth';
 import { toast } from 'sonner';
 import ecartLogo from '@/assets/ecart-logo.png';
 
@@ -17,10 +18,13 @@ const ResetPassword = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [isRecovery, setIsRecovery] = useState(false);
 
+  const [oobCode, setOobCode] = useState<string | null>(null);
+
   useEffect(() => {
-    // Check for recovery token in URL hash
-    const hash = window.location.hash;
-    if (hash.includes('type=recovery')) {
+    const searchParams = new URLSearchParams(window.location.search);
+    const code = searchParams.get('oobCode');
+    if (code) {
+      setOobCode(code);
       setIsRecovery(true);
     }
   }, []);
@@ -35,16 +39,17 @@ const ResetPassword = () => {
       toast.error('Password must be at least 6 characters');
       return;
     }
+    if (!oobCode) return;
 
     setLoading(true);
-    const { error } = await supabase.auth.updateUser({ password });
-    setLoading(false);
-
-    if (error) {
-      toast.error(error.message);
-    } else {
+    try {
+      await confirmPasswordReset(auth, oobCode, password);
       toast.success('Password updated successfully!');
       navigate('/auth');
+    } catch (error: any) {
+      toast.error(error.message);
+    } finally {
+      setLoading(false);
     }
   };
 

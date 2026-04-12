@@ -1,24 +1,39 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+bun.lockb
+
+# Build and Output
+dist/
+dist-ssr/
+*.local
+
+# Environment Variables & Secrets (CRITICAL)
+.env
+.env.*
+service_account.json
+serviceAccountKey.json
+*.pem
+*.key
+
 # Logs
 logs
 *.log
 npm-debug.log*
 yarn-debug.log*
-yarn-error.log*
 pnpm-debug.log*
-lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
-*.local
+# Frameworks & Platforms
+.vercel/
+.firebase/
+.turbo/
 
-# Editor directories and files
+# Editor & System Files
 .vscode/*
 !.vscode/extensions.json
-.idea
-.DS_Store
+.idea/
 *.suo
-*.ntvs*
-*.njsproj
 *.sln
 *.sw?
+.DS_Store
+Thumbs.db

@@ -15,7 +15,8 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useSession } from '@/hooks/useSession';
 import { useAuth } from '@/hooks/useAuth';
-import { supabase } from '@/integrations/supabase/client';
+import { db } from '@/integrations/firebase/firebase';
+import { collection, query, where, getDocs, getDoc, doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { toast } from 'sonner';
 import type { PaymentConfig } from '@/lib/storeConfig';
 
@@ -69,24 +70,26 @@ const CustomerScan = () => {
       else if (['VERIFIED', 'PAID', 'CLOSED'].includes(session.state)) setStep('done');
       // Load mart name for active session
       if (!martName) {
-        supabase.from('marts').select('name').eq('id', session.mart_id).single()
-          .then(({ data }) => { if (data) setMartName(data.name); });
+        getDoc(doc(db, 'marts', session.mart_id))
+          .then((docSnap) => { if (docSnap.exists()) setMartName(docSnap.data().name); });
       }
     }
   }, [session]);
 
   useEffect(() => {
-    supabase.from('marts').select('id, name, logo_url').then(({ data }) => {
-      if (data) setMarts(data);
+    getDocs(collection(db, 'marts')).then((snapshot) => {
+      const martsData = snapshot.docs.map(d => ({ id: d.id, name: d.data().name, logo_url: d.data().logo_url }));
+      setMarts(martsData);
     });
   }, []);
 
   useEffect(() => {
     if (!selectedMart) return;
-    supabase.from('branches').select('id, branch_name, is_default')
-      .eq('mart_id', selectedMart)
-      .then(({ data }) => {
-        if (data) {
+    const q = query(collection(db, 'branches'), where('mart_id', '==', selectedMart));
+    getDocs(q)
+      .then((snapshot) => {
+        const data = snapshot.docs.map(d => ({ id: d.id, branch_name: d.data().branch_name, is_default: d.data().is_default }));
+        if (data.length > 0) {
           setBranches(data);
           if (data.length === 1) {
             handleBranchSelect(data[0].id);
@@ -106,9 +109,12 @@ const CustomerScan = () => {
       const martId = storeMatch[1];
       const branchId = branchMatch[1];
       // Validate store and branch
-      const { data: martData } = await supabase.from('marts').select('id, name').eq('id', martId).single();
-      const { data: branchData } = await supabase.from('branches').select('id, branch_name').eq('id', branchId).eq('mart_id', martId).single();
-      if (martData && branchData) {
+      const martDoc = await getDoc(doc(db, 'marts', martId));
+      const branchDoc = await getDoc(doc(db, 'branches', branchId));
+      
+      const martData = martDoc.data();
+      const branchData = branchDoc.data();
+      if (martDoc.exists() && branchDoc.exists() && branchData?.mart_id === martId) {
         setMartName(martData.name);
         const result = await createSession(martId, branchId);
         if (result) {
@@ -145,9 +151,19 @@ const CustomerScan = () => {
 
   const cancelSession = async () => {
     if (!session) return;
-    await supabase.from('cart_items').delete().eq('session_id', session.id);
-    await supabase.from('carts').delete().eq('session_id', session.id);
-    await supabase.from('sessions').update({ state: 'CLOSED' as any }).eq('id', session.id);
+    try {
+      const itemsQuery = query(collection(db, 'cart_items'), where('session_id', '==', session.id));
+      const itemsSnap = await getDocs(itemsQuery);
+      await Promise.all(itemsSnap.docs.map(d => deleteDoc(doc(db, 'cart_items', d.id))));
+
+      const cartsQuery = query(collection(db, 'carts'), where('session_id', '==', session.id));
+      const cartsSnap = await getDocs(cartsQuery);
+      await Promise.all(cartsSnap.docs.map(d => deleteDoc(doc(db, 'carts', d.id))));
+
+      await updateDoc(doc(db, 'sessions', session.id), { state: 'CLOSED' });
+    } catch (e) {
+      console.error(e);
+    }
     endSession();
     setMartName('');
     setStep('select-mart');
@@ -166,10 +182,13 @@ const CustomerScan = () => {
     if (!session) return;
     setPaymentLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke('create-razorpay-order', {
-        body: { session_id: session.id, amount: session.total_amount },
+      const res = await fetch('/api/create-razorpay-order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: session.id, amount: session.total_amount }),
       });
-      if (error || !data?.order_id) throw new Error(data?.error || 'Failed to create order');
+      const data = await res.json();
+      if (!res.ok || !data?.order_id) throw new Error(data?.error || 'Failed to create order');
 
       if (!(window as any).Razorpay) {
         await new Promise<void>((resolve, reject) => {
@@ -189,15 +208,18 @@ const CustomerScan = () => {
         description: `Session ${session.session_code}`,
         order_id: data.order_id,
         handler: async (response: any) => {
-          const { data: verifyData, error: verifyErr } = await supabase.functions.invoke('verify-razorpay-payment', {
-            body: {
+          const verifyRes = await fetch('/api/verify-razorpay-payment', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
               razorpay_order_id: response.razorpay_order_id,
               razorpay_payment_id: response.razorpay_payment_id,
               razorpay_signature: response.razorpay_signature,
               session_id: session.id,
-            },
+            }),
           });
-          if (verifyErr || !verifyData?.success) {
+          const verifyData = await verifyRes.json();
+          if (!verifyRes.ok || !verifyData?.success) {
             toast.error('Payment verification failed');
           } else {
             toast.success('Payment successful!');
@@ -229,8 +251,9 @@ const CustomerScan = () => {
       setUpiLink(link);
     } else {
       // Fallback to mart table
-      supabase.from('marts').select('upi_id, merchant_name').eq('id', session.mart_id).single()
-        .then(({ data }) => {
+      getDoc(doc(db, 'marts', session.mart_id))
+        .then((docSnap) => {
+          const data = docSnap.data();
           if (data?.upi_id) {
             const link = `upi://pay?pa=${encodeURIComponent(data.upi_id)}&pn=${encodeURIComponent(data.merchant_name || 'Store')}&am=${session.total_amount}&cu=INR`;
             setUpiLink(link);

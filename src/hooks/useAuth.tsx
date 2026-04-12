@@ -1,19 +1,18 @@
 import { createContext, useContext, useEffect, useState, useCallback, useRef, type ReactNode } from 'react';
-import { supabase } from '@/integrations/supabase/client';
-import type { User, Session } from '@supabase/supabase-js';
-
-interface Profile {
-  id: string;
-  display_name: string | null;
-  email: string | null;
-  avatar_url: string | null;
-}
-
-type AppRole = 'customer' | 'cashier' | 'admin' | 'exit_guard';
+import { auth, db } from '@/integrations/firebase/firebase';
+import { 
+  createUserWithEmailAndPassword, 
+  signInWithEmailAndPassword, 
+  signOut as firebaseSignOut, 
+  onAuthStateChanged, 
+  updateProfile as firebaseUpdateProfile,
+  type User 
+} from 'firebase/auth';
+import { doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import type { Profile, AppRole } from '@/integrations/firebase/types';
 
 interface AuthContextType {
   user: User | null;
-  session: Session | null;
   profile: Profile | null;
   roles: AppRole[];
   loading: boolean;
@@ -29,7 +28,6 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [roles, setRoles] = useState<AppRole[]>([]);
   const [loading, setLoading] = useState(true);
@@ -39,110 +37,139 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const loadUserData = useCallback(async (userId: string) => {
     currentUserIdRef.current = userId;
 
-    const [profileResult, rolesResult] = await Promise.all([
-      supabase.from('profiles').select('*').eq('id', userId).single(),
-      supabase.from('user_roles').select('role').eq('user_id', userId),
-    ]);
+    try {
+      const profileDocRef = doc(db, 'profiles', userId);
+      const rolesQuery = query(collection(db, 'user_roles'), where('user_id', '==', userId));
 
-    // Guard against stale responses
-    if (!mountedRef.current || currentUserIdRef.current !== userId) return;
+      const [profileResult, rolesResult] = await Promise.all([
+        getDoc(profileDocRef),
+        getDocs(rolesQuery),
+      ]);
 
-    if (profileResult.data) setProfile(profileResult.data as Profile);
-    if (rolesResult.data) setRoles(rolesResult.data.map((r: any) => r.role as AppRole));
+      if (!mountedRef.current || currentUserIdRef.current !== userId) return;
+
+      if (profileResult.exists()) {
+        setProfile({ id: profileResult.id, ...profileResult.data() } as Profile);
+      }
+      
+      const userRoles = rolesResult.docs.map(d => (d.data() as any).role as AppRole);
+      setRoles(userRoles);
+    } catch (error) {
+      console.error("Error loading user data:", error);
+    }
   }, []);
 
   const refreshRoles = useCallback(async () => {
     const uid = currentUserIdRef.current;
     if (!uid) return;
-    const { data } = await supabase.from('user_roles').select('role').eq('user_id', uid);
-    if (data && mountedRef.current) setRoles(data.map((r: any) => r.role as AppRole));
+    try {
+      const rolesQuery = query(collection(db, 'user_roles'), where('user_id', '==', uid));
+      const rolesResult = await getDocs(rolesQuery);
+      if (mountedRef.current) {
+        setRoles(rolesResult.docs.map(d => (d.data() as any).role as AppRole));
+      }
+    } catch (e) {
+      console.error(e);
+    }
   }, []);
 
   useEffect(() => {
     mountedRef.current = true;
 
-    // First get the current session
-    supabase.auth.getSession().then(async ({ data: { session: currentSession } }) => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       if (!mountedRef.current) return;
-      setSession(currentSession);
-      setUser(currentSession?.user ?? null);
+      
+      setUser(currentUser);
 
-      if (currentSession?.user) {
-        await loadUserData(currentSession.user.id);
+      if (currentUser) {
+        setLoading(true);
+        loadUserData(currentUser.uid).then(() => {
+          if (mountedRef.current) setLoading(false);
+        });
+      } else {
+        currentUserIdRef.current = null;
+        setProfile(null);
+        setRoles([]);
+        setLoading(false);
       }
-      if (mountedRef.current) setLoading(false);
     });
-
-    // Then listen for changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, newSession) => {
-        if (!mountedRef.current) return;
-        setSession(newSession);
-        setUser(newSession?.user ?? null);
-
-        if (newSession?.user) {
-          setLoading(true);
-          loadUserData(newSession.user.id).then(() => {
-            if (mountedRef.current) setLoading(false);
-          });
-        } else {
-          currentUserIdRef.current = null;
-          setProfile(null);
-          setRoles([]);
-          setLoading(false);
-        }
-      }
-    );
 
     return () => {
       mountedRef.current = false;
-      subscription.unsubscribe();
+      unsubscribe();
     };
   }, [loadUserData]);
 
   const signUp = async (email: string, password: string, displayName: string) => {
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: { display_name: displayName },
-        emailRedirectTo: window.location.origin,
-      },
-    });
-    return { error };
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      await firebaseUpdateProfile(userCredential.user, { displayName });
+      
+      const uid = userCredential.user.uid;
+      
+      // Create profile document in Firestore (no Cloud Functions on Spark Plan)
+      await setDoc(doc(db, 'profiles', uid), {
+        display_name: displayName,
+        email: email,
+        avatar_url: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+
+      // Assign default 'customer' role
+      await setDoc(doc(db, 'user_roles', `${uid}_customer`), {
+        user_id: uid,
+        role: 'customer',
+        assigned_at: new Date().toISOString(),
+      });
+
+      return { error: null };
+    } catch (error: any) {
+      return { error };
+    }
   };
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    return { error };
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+      return { error: null };
+    } catch (error: any) {
+      return { error };
+    }
   };
 
   const signOut = async () => {
-    await supabase.auth.signOut();
-    currentUserIdRef.current = null;
-    setUser(null);
-    setSession(null);
-    setProfile(null);
-    setRoles([]);
+    try {
+      await firebaseSignOut(auth);
+      currentUserIdRef.current = null;
+      setUser(null);
+      setProfile(null);
+      setRoles([]);
+    } catch (error) {
+      console.error(error);
+    }
   };
 
   const updateProfile = async (updates: Partial<Profile>) => {
-    if (!user) return { error: 'Not authenticated' };
-    const { error } = await supabase
-      .from('profiles')
-      .update(updates)
-      .eq('id', user.id);
-    if (!error) {
+    if (!user) return { error: { message: 'Not authenticated' } };
+    try {
+      const profileDocRef = doc(db, 'profiles', user.uid);
+      await updateDoc(profileDocRef, updates);
       setProfile(prev => prev ? { ...prev, ...updates } : null);
+      if (updates.display_name) {
+        await firebaseUpdateProfile(user, { displayName: updates.display_name });
+      }
+      return { error: null };
+    } catch (error: any) {
+      return { error };
     }
-    return { error };
   };
 
   const hasRole = (role: AppRole) => roles.includes(role);
 
   return (
     <AuthContext.Provider value={{
-      user, session, profile, roles, loading,
+      user, profile, roles, loading,
       signUp, signIn, signOut, updateProfile, hasRole, refreshRoles,
     }}>
       {children}

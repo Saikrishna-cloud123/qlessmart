@@ -73,16 +73,16 @@ const Auth = () => {
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    const { supabase } = await import('@/integrations/supabase/client');
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/reset-password`,
-    });
-    setLoading(false);
-    if (error) {
-      toast.error(error.message);
-    } else {
+    try {
+      const { auth } = await import('@/integrations/firebase/firebase');
+      const { sendPasswordResetEmail } = await import('firebase/auth');
+      await sendPasswordResetEmail(auth, email);
       toast.success('Password reset link sent to your email!');
       setMode('login');
+    } catch (error: any) {
+      toast.error(error.message);
+    } finally {
+      setLoading(false);
     }
   };
 

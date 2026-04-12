@@ -6,7 +6,8 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { supabase } from '@/integrations/supabase/client';
+import { db } from '@/integrations/firebase/firebase';
+import { collection, query, where, getDocs, orderBy, documentId } from 'firebase/firestore';
 import { useAuth } from '@/hooks/useAuth';
 
 interface Invoice {
@@ -59,13 +60,10 @@ const MyBills = () => {
   useEffect(() => {
     if (!user) return;
     const load = async () => {
-      const { data } = await supabase
-        .from('invoices')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false });
+      const invQuery = query(collection(db, 'invoices'), where('user_id', '==', user.uid), orderBy('created_at', 'desc'));
+      const invSnap = await getDocs(invQuery);
 
-      const invs = (data || []) as Invoice[];
+      const invs = invSnap.docs.map(d => ({ id: d.id, ...d.data() } as Invoice));
       setInvoices(invs);
 
       // Load mart & branch names
@@ -73,12 +71,18 @@ const MyBills = () => {
       const branchIds = [...new Set(invs.map(i => i.branch_id))];
 
       if (martIds.length > 0) {
-        const { data: m } = await supabase.from('marts').select('id, name').in('id', martIds);
-        if (m) setMarts(Object.fromEntries(m.map(x => [x.id, x])));
+        try {
+          const mQuery = query(collection(db, 'marts'), where(documentId(), 'in', martIds.slice(0, 10)));
+          const mSnap = await getDocs(mQuery);
+          setMarts(Object.fromEntries(mSnap.docs.map(d => [d.id, { id: d.id, name: d.data().name }])));
+        } catch(e) { console.error('Marts fetch error:', e); }
       }
       if (branchIds.length > 0) {
-        const { data: b } = await supabase.from('branches').select('id, branch_name').in('id', branchIds);
-        if (b) setBranches(Object.fromEntries(b.map(x => [x.id, x])));
+        try {
+          const bQuery = query(collection(db, 'branches'), where(documentId(), 'in', branchIds.slice(0, 10)));
+          const bSnap = await getDocs(bQuery);
+          setBranches(Object.fromEntries(bSnap.docs.map(d => [d.id, { id: d.id, branch_name: d.data().branch_name }])));
+        } catch(e) { console.error('Branches fetch error:', e); }
       }
       setLoading(false);
     };
