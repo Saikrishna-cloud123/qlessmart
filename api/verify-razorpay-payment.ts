@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createHmac } from 'crypto';
-import { getAdminDb } from './_lib/firebaseAdmin';
+import { getAdminDb } from './_lib/firebaseAdmin.js';
 
 /**
  * POST /api/verify-razorpay-payment
