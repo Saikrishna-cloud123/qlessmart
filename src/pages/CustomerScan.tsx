@@ -84,8 +84,8 @@ const CustomerScan = () => {
           setStep('scan');
         }
       }
-      else if (session.state === 'LOCKED') setStep('locked');
-      else if (['VERIFIED', 'PAID', 'CLOSED'].includes(session.state)) setStep('done');
+      else if (session.state === 'LOCKED' || session.state === 'VERIFIED') setStep('locked');
+      else if (['PAID', 'CLOSED'].includes(session.state)) setStep('done');
       // Load mart name for active session
       if (!martName) {
         getDoc(doc(db, 'marts', session.mart_id))
@@ -116,11 +116,11 @@ const CustomerScan = () => {
     const q = query(collection(db, 'branches'), where('mart_id', '==', selectedMart));
     getDocs(q)
       .then((snapshot) => {
-        const data = snapshot.docs.map(d => ({ 
-          id: d.id, 
-          branch_name: d.data().branch_name, 
+        const data = snapshot.docs.map(d => ({
+          id: d.id,
+          branch_name: d.data().branch_name,
           address: d.data().address || null,
-          is_default: d.data().is_default 
+          is_default: d.data().is_default
         }));
         if (data.length > 0) {
           setBranches(data);
@@ -545,11 +545,56 @@ const CustomerScan = () => {
 
   // Helper for digital payment flow
   const isDigital = session?.payment_method === 'upi_app' || session?.payment_method === 'razorpay';
+  // === STEP: Locked or Verified — Handle transitions to payment ===
+  if (step === 'locked' && (session?.state === 'LOCKED' || session?.state === 'VERIFIED')) {
+    const isVerified = session.state === 'VERIFIED';
 
-  // === STEP: Locked — show QR or Payment ===
-  if (step === 'locked' && session?.state === 'LOCKED') {
+    // Scenario 1: Cart is verified by cashier (Manual payment confirmation needed)
+    if (isVerified) {
+      return (
+        <div className="flex min-h-screen flex-col items-center justify-center bg-background p-6 text-center">
+          <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="glass-card rounded-3xl p-8 max-w-sm w-full">
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
+              <ScanBarcode className="h-8 w-8 text-primary" />
+            </div>
+            <h2 className="mb-2 text-2xl font-bold text-foreground">Cart Verified!</h2>
+            <p className="mb-2 text-sm text-muted-foreground">
+              Your cart has been approved by the cashier.
+            </p>
+            <p className="font-mono text-2xl font-bold text-primary mb-6">₹{localTotalAmount.toFixed(2)}</p>
+
+            <div className="rounded-xl border border-border bg-muted/30 p-4 mb-6">
+              <p className="text-[11px] text-muted-foreground mb-3 text-left leading-relaxed">
+                Please pay <strong>₹{localTotalAmount.toFixed(2)}</strong> via {session.payment_method?.replace('_', ' ').toUpperCase()} at the counter. Once finished, tap below:
+              </p>
+              <Button
+                className="w-full gradient-primary border-0 text-primary-foreground py-6 text-base font-bold shadow-md"
+                onClick={async () => {
+                  setPaymentLoading(true);
+                  try {
+                    await confirmManualPayment();
+                  } finally {
+                    setPaymentLoading(false);
+                  }
+                }}
+                disabled={paymentLoading}
+              >
+                {paymentLoading ? (
+                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary-foreground/30 border-t-primary-foreground" />
+                ) : (
+                  "I've Completed Payment"
+                )}
+              </Button>
+            </div>
+            
+            <p className="animate-pulse text-[10px] text-muted-foreground">Waiting for final confirmation...</p>
+          </motion.div>
+        </div>
+      );
+    }
+
+    // Scenario 2: Digital Payment Flow (Razorpay / UPI App)
     if (isDigital) {
-      // Bypass cashier for digital methods
       return (
         <div className="flex min-h-screen flex-col items-center justify-center bg-background p-6 text-center">
           <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="glass-card rounded-3xl p-8 max-w-sm w-full">
@@ -575,163 +620,19 @@ const CustomerScan = () => {
             )}
 
             {session.payment_method === 'upi_app' && (
-              <div className="space-y-4">
-                {upiLink && (
-                  <div className="mx-auto flex flex-col items-center">
-                    <div className="mb-4 rounded-2xl bg-white p-4 shadow-sm">
-                      <QRCodeSVG value={upiLink} size={180} level="H" />
-                    </div>
-                    {upiDetails && (
-                      <div className="mb-3 text-center">
-                        <p className="text-sm font-bold text-foreground">{upiDetails.pn}</p>
-                        <p className="text-xs text-muted-foreground">{upiDetails.pa}</p>
-                      </div>
-                    )}
-                    <p className="mb-4 text-xs text-muted-foreground uppercase tracking-wider font-semibold">
-                      Scan QR or pay via your favourite UPI app
-                    </p>
-
-                    {/* Individual UPI app buttons */}
-                    <div className="grid grid-cols-2 gap-2 w-full mb-4">
-                      {UPI_APPS.map(app => (
-                        <Button
-                          key={app.name}
-                          onClick={() => handleUPIPayment(app.scheme)}
-                          className="flex items-center justify-center gap-2 rounded-xl h-auto p-3 text-white text-sm font-bold border-0 transition-transform hover:scale-[1.02] active:scale-95 shadow-sm"
-                          style={{ backgroundColor: app.color }}
-                        >
-                          <Smartphone className="h-4 w-4" />
-                          {app.abbr}
-                        </Button>
-                      ))}
-                      <Button
-                        onClick={() => handleUPIPayment()}
-                        className="col-span-2 flex items-center justify-center gap-2 rounded-xl h-auto p-3 bg-primary text-primary-foreground text-sm font-bold border-0 transition-transform hover:scale-[1.01] active:scale-95 shadow-sm"
-                      >
-                        <QrCode className="h-4 w-4" />
-                        Any Other UPI App
-                      </Button>
-                    </div>
-                  </div>
-                )}
-
-                <div className="rounded-xl border border-border bg-muted/30 p-3">
-                  <p className="text-[11px] text-muted-foreground mb-2">
-                    After paying, tap the button below to confirm.
-                    We cannot auto-detect UPI QR payments.
-                  </p>
-                  <Button
-                    className="w-full gradient-primary border-0 text-primary-foreground py-5 text-base"
-                    onClick={async () => {
-                      await confirmManualPayment();
-                    }}
-                  >
-                    I've Completed the Payment
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            <Button
-              variant="ghost"
-              className="mt-4 text-muted-foreground hover:text-primary transition-colors text-xs"
-              onClick={async () => {
-                await unlockCart();
-                setStep('payment');
-              }}
-            >
-              Change Payment Method
-            </Button>
-          </motion.div>
-        </div>
-      );
-    }
-
-    return (
-      <div className="flex min-h-screen flex-col items-center justify-center bg-background p-6 text-center">
-        <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="glass-card rounded-3xl p-8 max-w-sm w-full">
-          <Lock className="mx-auto mb-4 h-10 w-10 text-primary" />
-          <h2 className="mb-2 text-2xl font-bold text-foreground">Cart Locked</h2>
-          <p className="mb-6 text-sm text-muted-foreground">Show this QR code to the cashier</p>
-          <div className="mx-auto mb-4 inline-block rounded-2xl bg-background p-4 shadow-inner">
-            <QRCodeSVG value={session.id} size={200} level="H" />
-          </div>
-          <p className="mb-1 font-mono text-xs font-bold text-foreground">{session.session_code}</p>
-          <p className="mb-2 text-xs text-muted-foreground">
-            SHA256 Hash: {session.cart_hash}
-          </p>
-          <p className="mb-6 text-xs text-muted-foreground">
-            {items.length} items · ₹{localTotalAmount.toFixed(2)}
-          </p>
-          <div className="flex flex-col gap-2">
-            <Button variant="outline" onClick={() => setStep('scan')}>Edit Items</Button>
-            <Button
-              variant="ghost"
-              className="text-primary hover:text-primary/80"
-              onClick={async () => {
-                await unlockCart();
-                setStep('payment');
-              }}
-            >
-              Change Payment Method
-            </Button>
-          </div>
-        </motion.div>
-        <p className="mt-6 animate-pulse text-sm text-muted-foreground">Waiting for cashier verification...</p>
-      </div>
-    );
-  }
-
-  // === STEP: Done (VERIFIED / PAID / CLOSED) ===
-  if (step === 'done' || (session && ['VERIFIED', 'PAID', 'CLOSED'].includes(session.state))) {
-    const state = session?.state || 'CLOSED';
-
-    if (state === 'VERIFIED' && session) {
-      return (
-        <div className="flex min-h-screen flex-col items-center justify-center bg-background p-6 text-center">
-          <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="glass-card rounded-3xl p-8 max-w-sm w-full">
-            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
-              <ShoppingCart className="h-8 w-8 text-primary" />
-            </div>
-            <h2 className="mb-2 text-2xl font-bold text-foreground">Cart Verified!</h2>
-            <p className="mb-2 text-sm text-muted-foreground">
-              {session.payment_method === 'upi_app' || session.payment_method === 'razorpay'
-                ? 'Complete payment to proceed.'
-                : 'Proceed to payment at the counter.'}
-            </p>
-            <p className="font-mono text-2xl font-bold text-primary mb-4">₹{localTotalAmount.toFixed(2)}</p>
-
-            {(session.payment_method === 'upi_app' || session.payment_method === 'razorpay') && (
-              <Button
-                className="w-full gradient-primary border-0 text-primary-foreground py-5 text-base mb-3"
-                onClick={() => initiateRazorpay()}
-                disabled={paymentLoading}
-              >
-                {paymentLoading ? (
-                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary-foreground/30 border-t-primary-foreground" />
-                ) : (
-                  <><CreditCard className="mr-2 h-5 w-5" /> Pay Now</>
-                )}
-              </Button>
-            )}
-
-            {session.payment_method === 'upi_app' && (
-              <div className="space-y-4 mb-3">
+              <div className="space-y-4 mb-4">
                 {upiLink && (
                   <div className="mx-auto flex flex-col items-center">
                     <div className="mb-3 rounded-xl bg-white p-3 shadow-sm border border-border">
                       <QRCodeSVG value={upiLink} size={140} level="H" />
                     </div>
                     {upiDetails && (
-                      <div className="mb-3 text-center">
+                      <div className="mb-2 text-center">
                         <p className="text-sm font-bold text-foreground">{upiDetails.pn}</p>
                         <p className="text-xs text-muted-foreground truncate max-w-[200px]">{upiDetails.pa}</p>
                       </div>
                     )}
-                    <p className="mb-3 text-[10px] text-muted-foreground uppercase tracking-widest font-bold">
-                      Scan to Pay ₹{localTotalAmount.toFixed(2)}
-                    </p>
-
+                    
                     {/* Individual UPI app buttons */}
                     <div className="grid grid-cols-2 gap-2 w-full mb-3">
                       {UPI_APPS.map(app => (
@@ -748,24 +649,32 @@ const CustomerScan = () => {
                     </div>
                   </div>
                 )}
-
+                
                 <div className="rounded-xl border border-border bg-muted/30 p-3">
                   <p className="text-[11px] text-muted-foreground mb-2">
-                    After paying, tap below to confirm and view your invoice.
+                    After paying in your app, tap below to confirm.
                   </p>
                   <Button
-                    className="w-full gradient-primary border-0 text-primary-foreground py-5 text-base"
+                    className="w-full gradient-primary border-0 text-primary-foreground py-5 text-base font-bold"
                     onClick={async () => {
-                      await confirmManualPayment();
+                      setPaymentLoading(true);
+                      try {
+                        await confirmManualPayment();
+                      } finally {
+                        setPaymentLoading(false);
+                      }
                     }}
+                    disabled={paymentLoading}
                   >
-                    I've Completed the Payment
+                    {paymentLoading ? (
+                      <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary-foreground/30 border-t-primary-foreground" />
+                    ) : (
+                      "I've Completed Payment"
+                    )}
                   </Button>
                 </div>
               </div>
             )}
-
-            <p className="animate-pulse text-xs text-muted-foreground mb-4">Waiting for payment confirmation...</p>
 
             <Button
               variant="ghost"
@@ -782,6 +691,55 @@ const CustomerScan = () => {
         </div>
       );
     }
+
+    // Scenario 3: Counter Payment Flow (Show QR to Cashier)
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-background p-6 text-center">
+        <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="glass-card rounded-3xl p-8 max-w-sm w-full">
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
+            <QrCode className="h-8 w-8 text-primary" />
+          </div>
+          <h2 className="mb-2 text-2xl font-bold text-foreground">Scan at Counter</h2>
+          <p className="mb-6 text-sm text-muted-foreground">
+            {session.payment_method === 'cash' 
+              ? 'Tell the cashier you want to pay by Cash.' 
+              : 'Show this QR to the cashier to verify your cart.'}
+          </p>
+          
+          <div className="mx-auto mb-6 flex justify-center rounded-2xl bg-white p-6 shadow-xl border border-border">
+            <QRCodeSVG 
+              value={`session:${session.id}`} 
+              size={180} 
+              level="H"
+              includeMargin={true}
+            />
+          </div>
+
+          <div className="mb-6 rounded-xl bg-muted/50 p-3">
+            <p className="text-xs text-muted-foreground mb-1 uppercase tracking-widest font-bold">Session ID</p>
+            <p className="font-mono font-bold text-foreground">{session.session_code}</p>
+          </div>
+
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground hover:text-primary transition-colors"
+            onClick={async () => {
+              await unlockCart();
+              setStep('payment');
+            }}
+          >
+            Change Payment Method
+          </Button>
+        </motion.div>
+      </div>
+    );
+  }
+
+  // === STEP: Done (PAID / CLOSED) ===
+  if (step === 'done' || (session && ['PAID', 'CLOSED'].includes(session.state))) {
+    const state = session?.state || 'CLOSED';
+
 
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-background p-6 text-center">

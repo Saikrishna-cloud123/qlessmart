@@ -37,9 +37,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       adminAuth = getAuth(getApps()[0]);
     } catch (e: any) {
       console.error("[sync-user-roles] Initialization failed:", e.message);
-      return res.status(500).json({ 
-        error: `Server initialization failed: ${e.message}. Check environment variables.`, 
-        success: false 
+      return res.status(500).json({
+        error: `Server initialization failed: ${e.message}. Check environment variables.`,
+        success: false
       });
     }
 
