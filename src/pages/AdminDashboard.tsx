@@ -36,6 +36,7 @@ interface Branch {
 interface Employee {
   id: string; employee_name: string; user_id: string;
   branch_id: string | null; is_active: boolean; email?: string | null;
+  role?: string;
 }
 interface SessionRow {
   id: string; session_code: string; state: string; total_amount: number;
@@ -653,12 +654,19 @@ const AdminDashboard = () => {
                           </div>
                           <div>
                             <p className={`font-medium ${emp.is_active ? 'text-foreground' : 'text-muted-foreground line-through'}`}>{emp.employee_name}</p>
-                            {emp.email && (
-                              <p className="flex items-center gap-1 text-xs text-muted-foreground">
-                                <Mail className="h-3 w-3" /> {emp.email}
-                              </p>
-                            )}
-                            <p className="text-xs text-muted-foreground">{emp.is_active ? '● Active' : '○ Inactive'}</p>
+                            <div className="flex flex-wrap items-center gap-2">
+                              {emp.role && (
+                                <span className="inline-block rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary uppercase">
+                                  {emp.role.replace('_', ' ')}
+                                </span>
+                              )}
+                              {emp.email && (
+                                <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                                  <Mail className="h-3 w-3" /> {emp.email}
+                                </p>
+                              )}
+                            </div>
+                            <p className="text-[10px] text-muted-foreground mt-1">{emp.is_active ? '● Active' : '○ Inactive'}</p>
                           </div>
                         </div>
                         <div className="flex items-center gap-2">

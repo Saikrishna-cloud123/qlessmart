@@ -112,6 +112,7 @@ const CashierDashboard = () => {
       collection(db, 'sessions'),
       where('mart_id', '==', employeeMartId),
       where('state', 'in', ['LOCKED', 'VERIFIED', 'PAID']),
+      where('payment_method', 'in', ['cash', 'card', 'upi_counter', null]),
       orderBy('created_at', 'desc')
     );
     const snapshot = await getDocs(q);
@@ -141,6 +142,7 @@ const CashierDashboard = () => {
         collection(db, 'sessions'),
         where('mart_id', '==', employeeMartId),
         where('state', 'in', ['PAID', 'CLOSED']),
+        where('payment_method', 'in', ['cash', 'card', 'upi_counter']),
         where('created_at', '>=', todayStart)
       );
       const todaySnap = await getDocs(qToday);
@@ -153,6 +155,7 @@ const CashierDashboard = () => {
         collection(db, 'sessions'),
         where('mart_id', '==', employeeMartId),
         where('state', 'in', ['PAID', 'CLOSED']),
+        where('payment_method', 'in', ['cash', 'card', 'upi_counter']),
         where('created_at', '>=', weekStart),
         orderBy('created_at', 'asc')
       );
@@ -484,7 +487,9 @@ const CashierDashboard = () => {
             </div>
             {selectedSession.state === 'LOCKED' && (
               <div className="flex gap-1">
-                {Object.entries(PAYMENT_LABELS).map(([key, val]) => (
+                {Object.entries(PAYMENT_LABELS)
+                  .filter(([key]) => ['cash', 'card', 'upi_counter'].includes(key))
+                  .map(([key, val]) => (
                   <Button
                     key={key}
                     variant={selectedSession.payment_method === key ? 'default' : 'ghost'}

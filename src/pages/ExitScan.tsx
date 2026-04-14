@@ -35,6 +35,7 @@ const ExitScan = () => {
   const [customerName, setCustomerName] = useState('');
   const [verifyResult, setVerifyResult] = useState<'valid' | 'invalid' | 'hash_mismatch' | null>(null);
   const [loading, setLoading] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
   const videoRef = useRef<HTMLDivElement>(null);
 
   const [employeeBranchId, setEmployeeBranchId] = useState<string | null>(null);
@@ -171,11 +172,17 @@ const ExitScan = () => {
     }
 
     toast.success('Exit validated! Customer may leave.');
-    setSession(null);
-    setVerifyResult(null);
-    setCartItems([]);
-    setScanInput('');
+    setShowSuccess(true);
     setLoading(false);
+
+    // Auto-reset after 2 seconds
+    setTimeout(() => {
+      setSession(null);
+      setVerifyResult(null);
+      setCartItems([]);
+      setScanInput('');
+      setShowSuccess(false);
+    }, 2000);
   };
 
   // Camera scanner - stop when result is showing, restart when cleared
@@ -373,7 +380,21 @@ const ExitScan = () => {
           </motion.div>
         )}
 
-        {!verifyResult && !loading && (
+        {showSuccess && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="flex flex-col items-center justify-center py-16 text-center"
+          >
+            <div className="mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-primary/10">
+              <ShieldCheck className="h-10 w-10 text-primary" />
+            </div>
+            <h2 className="text-2xl font-bold text-foreground">Success!</h2>
+            <p className="text-muted-foreground">Exit approved. Ready for next scan.</p>
+          </motion.div>
+        )}
+
+        {!verifyResult && !loading && !showSuccess && (
           <div className="py-16 text-center">
             <Shield className="mx-auto mb-4 h-20 w-20 text-muted-foreground/20" />
             <p className="text-muted-foreground">Scan a receipt QR to validate exit</p>
