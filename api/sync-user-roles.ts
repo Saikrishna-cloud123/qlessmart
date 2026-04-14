@@ -29,9 +29,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: 'idToken is required' });
     }
 
-    // Verify the token using Firebase Admin
-    const db = getAdminDb();
-    const adminAuth = getAuth(getApps()[0]);
+    // Initialize services inside try block to capture errors
+    let db;
+    let adminAuth;
+    try {
+      db = getAdminDb();
+      adminAuth = getAuth(getApps()[0]);
+    } catch (e: any) {
+      console.error("[sync-user-roles] Initialization failed:", e.message);
+      return res.status(500).json({ 
+        error: `Server initialization failed: ${e.message}. Check environment variables.`, 
+        success: false 
+      });
+    }
+
     const decoded = await adminAuth.verifyIdToken(idToken);
     const uid = decoded.uid;
     const email = (decoded.email || '').toLowerCase();
