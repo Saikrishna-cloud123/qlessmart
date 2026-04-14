@@ -112,18 +112,19 @@ const CashierDashboard = () => {
     const q = query(
       collection(db, 'sessions'),
       where('mart_id', '==', employeeMartId),
-      where('state', 'in', ['LOCKED', 'VERIFIED', 'PAID']),
+      where('verified_by', '==', user.uid),
+      where('state', 'in', ['VERIFIED', 'PAID']),
       orderBy('created_at', 'desc')
     );
     const snapshot = await getDocs(q);
     setSessions(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as SessionRow)));
-  }, [employeeMartId]);
+  }, [employeeMartId, user?.uid]);
 
   useEffect(() => { fetchSessions(); }, [fetchSessions]);
 
   /* ── Realtime ── */
   useEffect(() => {
-    if (!employeeMartId) return;
+    if (!employeeMartId || !user?.uid) return;
     const q = query(collection(db, 'sessions'), where('mart_id', '==', employeeMartId));
     const unsubscribe = onSnapshot(q, () => { fetchSessions(); });
     return () => unsubscribe();
@@ -131,7 +132,7 @@ const CashierDashboard = () => {
 
   /* ── Analytics data ── */
   useEffect(() => {
-    if (!employeeMartId) return;
+    if (!employeeMartId || !user?.uid) return;
     const loadAnalytics = async () => {
       try {
         const now = new Date();
@@ -142,6 +143,7 @@ const CashierDashboard = () => {
         const qToday = query(
           collection(db, 'sessions'),
           where('mart_id', '==', employeeMartId),
+          where('verified_by', '==', user.uid),
           where('state', 'in', ['PAID', 'CLOSED']),
           where('payment_method', 'in', ['cash', 'card', 'upi_counter']),
           where('created_at', '>=', todayStart)
@@ -155,6 +157,7 @@ const CashierDashboard = () => {
         const qWeek = query(
           collection(db, 'sessions'),
           where('mart_id', '==', employeeMartId),
+          where('verified_by', '==', user.uid),
           where('state', 'in', ['PAID', 'CLOSED']),
           where('payment_method', 'in', ['cash', 'card', 'upi_counter']),
           where('created_at', '>=', weekStart),
@@ -188,7 +191,7 @@ const CashierDashboard = () => {
       }
     };
     loadAnalytics();
-  }, [employeeMartId, sessions]);
+  }, [employeeMartId, sessions, user?.uid]);
 
   /* ── Session detail loading ── */
   const loadSessionDetail = useCallback(async (sess: SessionRow) => {
