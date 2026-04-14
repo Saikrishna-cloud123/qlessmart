@@ -13,23 +13,23 @@ import { getAdminDb } from './_lib/firebaseAdmin';
 const DEMO_PRODUCTS: Record<string, any> = {
   '8901234567890': {
     barcode: '8901234567890', title: 'Milk 1L', brand: 'Amul',
-    category: 'Dairy', price: 60, image_url: null,
+    category: 'Dairy', price: 60, image_url: null, stock: 50,
   },
   '8901234567891': {
     barcode: '8901234567891', title: 'Bread (White)', brand: 'Harvest Gold',
-    category: 'Bakery', price: 45, image_url: null,
+    category: 'Bakery', price: 45, image_url: null, stock: 30,
   },
   '8901234567892': {
     barcode: '8901234567892', title: 'Rice 5kg', brand: 'India Gate',
-    category: 'Grains', price: 380, image_url: null,
+    category: 'Grains', price: 380, image_url: null, stock: 10,
   },
   '8901234567893': {
     barcode: '8901234567893', title: 'Cooking Oil 1L', brand: 'Fortune',
-    category: 'Cooking', price: 155, image_url: null,
+    category: 'Cooking', price: 155, image_url: null, stock: 25,
   },
   '8901234567894': {
     barcode: '8901234567894', title: 'Sugar 1kg', brand: 'Dhampure',
-    category: 'Essentials', price: 48, image_url: null,
+    category: 'Essentials', price: 48, image_url: null, stock: 100,
   },
 };
 
@@ -68,13 +68,30 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(404).json({ error: 'Product not found in external API' });
     }
 
-    // Fallback: demo products
+    // Fallback 1: Check Firestore `products` collection
+    const db = getAdminDb();
+
+    // Check branch-specific product first if branch_id is provided
+    if (branch_id) {
+      const branchProductDoc = await db.collection('products').doc(`${branch_id}_${barcode}`).get();
+      if (branchProductDoc.exists) {
+        return res.status(200).json({ product: { barcode, ...branchProductDoc.data() } });
+      }
+    }
+
+    // Checking global product
+    const productDoc = await db.collection('products').doc(barcode).get();
+    if (productDoc.exists) {
+      return res.status(200).json({ product: { barcode, ...productDoc.data() } });
+    }
+
+    // Fallback 2: Hardcoded demo products
     const demo = DEMO_PRODUCTS[barcode];
     if (demo) {
       return res.status(200).json({ product: demo });
     }
 
-    // Generate a random demo product for any unknown barcode
+    // Fallback 3: Generate a random demo product for any unknown barcode (so scanning never strictly breaks during demo)
     return res.status(200).json({
       product: {
         barcode,
@@ -83,6 +100,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         category: 'General',
         price: Math.round((Math.random() * 500 + 10) * 100) / 100,
         image_url: null,
+        stock: Math.floor(Math.random() * 99) + 1, // At least 1 so it scans successfully
       },
     });
   } catch (err: any) {

@@ -7,7 +7,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { db } from '@/integrations/firebase/firebase';
-import { collection, query, where, getDocs, orderBy, documentId } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, orderBy, documentId, getDocs } from 'firebase/firestore';
 import { useAuth } from '@/hooks/useAuth';
 
 interface Invoice {
@@ -59,34 +59,55 @@ const MyBills = () => {
 
   useEffect(() => {
     if (!user) return;
-    const load = async () => {
-      const invQuery = query(collection(db, 'invoices'), where('user_id', '==', user.uid), orderBy('created_at', 'desc'));
-      const invSnap = await getDocs(invQuery);
+    setLoading(true);
 
+    const invQuery = query(
+      collection(db, 'invoices'),
+      where('user_id', '==', user.uid),
+      orderBy('created_at', 'desc')
+    );
+
+    const unsubscribe = onSnapshot(invQuery, async (invSnap) => {
       const invs = invSnap.docs.map(d => ({ id: d.id, ...d.data() } as Invoice));
       setInvoices(invs);
 
-      // Load mart & branch names
+      // Avoid repeated loading states if just updating
+      if (invs.length === 0) setLoading(false);
+
+      // Load mart & branch names for unique IDs in this set
       const martIds = [...new Set(invs.map(i => i.mart_id))];
       const branchIds = [...new Set(invs.map(i => i.branch_id))];
 
       if (martIds.length > 0) {
         try {
-          const mQuery = query(collection(db, 'marts'), where(documentId(), 'in', martIds.slice(0, 10)));
+          // Firestore 'in' query supports up to 30 items
+          const mQuery = query(collection(db, 'marts'), where(documentId(), 'in', martIds.slice(0, 30)));
           const mSnap = await getDocs(mQuery);
-          setMarts(Object.fromEntries(mSnap.docs.map(d => [d.id, { id: d.id, name: d.data().name }])));
+          setMarts(prev => ({
+            ...prev,
+            ...Object.fromEntries(mSnap.docs.map(d => [d.id, { id: d.id, name: d.data().name }]))
+          }));
         } catch(e) { console.error('Marts fetch error:', e); }
       }
+
       if (branchIds.length > 0) {
         try {
-          const bQuery = query(collection(db, 'branches'), where(documentId(), 'in', branchIds.slice(0, 10)));
+          const bQuery = query(collection(db, 'branches'), where(documentId(), 'in', branchIds.slice(0, 30)));
           const bSnap = await getDocs(bQuery);
-          setBranches(Object.fromEntries(bSnap.docs.map(d => [d.id, { id: d.id, branch_name: d.data().branch_name }])));
+          setBranches(prev => ({
+            ...prev,
+            ...Object.fromEntries(bSnap.docs.map(d => [d.id, { id: d.id, branch_name: d.data().branch_name }]))
+          }));
         } catch(e) { console.error('Branches fetch error:', e); }
       }
+      
       setLoading(false);
-    };
-    load();
+    }, (error) => {
+      console.error("Invoices listener error:", error);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
   }, [user]);
 
   const formatDate = (iso: string) => {

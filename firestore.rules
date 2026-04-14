@@ -12,32 +12,39 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
+    function isAdmin() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/user_roles/$(request.auth.uid + '_admin'));
+    }
+
     function hasRole(role) {
       return isSignedIn() &&
-        exists(/databases/$(database)/documents/user_roles/$(request.auth.uid + '_' + role));
+        (exists(/databases/$(database)/documents/user_roles/$(request.auth.uid + '_' + role)) || isAdmin());
     }
 
     // ── Profiles ──────────────────────────────────────────────────────────
     match /profiles/{userId} {
       allow read: if isSignedIn();
-      allow create: if isOwner(userId);
-      allow update: if isOwner(userId);
-      allow delete: if false;
+      allow create: if isOwner(userId) || isAdmin();
+      allow update: if isOwner(userId) || isAdmin();
+      allow delete: if isAdmin();
     }
 
     // ── User Roles ────────────────────────────────────────────────────────
     match /user_roles/{docId} {
       allow read: if isSignedIn();
-      // Only admins can write roles (or create via server-side admin SDK)
-      allow write: if false; // Managed by admin SDK / API
+      // Allow users to create their own 'customer' role during signup
+      // Also allow Admin to manage all roles
+      allow create: if (isOwner(docId.split('_')[0]) && docId.split('_')[1] == 'customer') || isAdmin();
+      allow update, delete: if isAdmin();
     }
 
     // ── Marts ─────────────────────────────────────────────────────────────
     match /marts/{martId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSignedIn() && resource.data.owner_id == request.auth.uid;
-      allow delete: if false;
+      allow create: if isAdmin();
+      allow update: if (isSignedIn() && resource.data.owner_id == request.auth.uid) || isAdmin();
+      allow delete: if isAdmin();
     }
 
     // ── Branches ──────────────────────────────────────────────────────────
@@ -59,7 +66,7 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if isSignedIn();
       allow update: if isSignedIn();
-      allow delete: if false;
+      allow delete: if isAdmin();
     }
 
     // ── Cart Items ────────────────────────────────────────────────────────
@@ -73,14 +80,14 @@ service cloud.firestore {
     match /invoices/{invoiceId} {
       allow read: if isSignedIn();
       allow create: if isSignedIn();
-      allow update, delete: if false;
+      allow update, delete: if isAdmin();
     }
 
     // ── Audit Logs ────────────────────────────────────────────────────────
     match /audit_logs/{logId} {
       allow read: if isSignedIn();
       allow create: if isSignedIn();
-      allow update, delete: if false;
+      allow update, delete: if isAdmin();
     }
 
     // ── Carts (legacy / summary collection) ──────────────────────────────
@@ -88,7 +95,13 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if isSignedIn();
       allow update: if isSignedIn();
-      allow delete: if false;
+      allow delete: if isAdmin();
+    }
+    
+    // Default fallback rules
+    match /{document=**} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
     }
   }
 }

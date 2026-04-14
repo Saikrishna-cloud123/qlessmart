@@ -8,9 +8,14 @@ import { useAuth } from './useAuth';
 import { toast } from 'sonner';
 import type { StoreConfig } from '@/lib/storeConfig';
 import { DEFAULT_STORE_CONFIG } from '@/lib/storeConfig';
-import type { Session as ShoppingSession, CartItem } from '@/integrations/firebase/types';
+import type { Session as ShoppingSession, CartItem as BaseCartItem } from '@/integrations/firebase/types';
 
-export { type CartItem, type ShoppingSession };
+// Extended client-side CartItem to include stock limits
+export interface CartItem extends BaseCartItem {
+  max_stock?: number;
+}
+
+export { type ShoppingSession };
 
 export function useSession() {
   const { user } = useAuth();
@@ -117,11 +122,15 @@ export function useSession() {
 
   // Realtime session state subscription
   useEffect(() => {
-    if (!currentSessionId.current) return;
+    const sid = session?.id;
+    if (!sid) return;
     
-    const unsubscribe = onSnapshot(doc(db, 'sessions', currentSessionId.current), (docSnap) => {
+    const unsubscribe = onSnapshot(doc(db, 'sessions', sid), (docSnap) => {
       if (docSnap.exists()) {
-        setSession({ id: docSnap.id, ...docSnap.data() } as ShoppingSession);
+        const data = docSnap.data();
+        if (data.state !== session?.state) {
+          setSession({ id: docSnap.id, ...data } as ShoppingSession);
+        }
       } else {
         setSession(null);
         currentSessionId.current = null;
@@ -129,24 +138,35 @@ export function useSession() {
     });
 
     return () => unsubscribe();
-  }, [currentSessionId.current]);
+  }, [session?.id]);
 
   // Realtime cart items subscription
   useEffect(() => {
-    if (!currentSessionId.current) return;
+    const sid = session?.id;
+    if (!sid) {
+      setItems([]);
+      return;
+    }
     
     const itemsQuery = query(
       collection(db, 'cart_items'),
-      where('session_id', '==', currentSessionId.current),
-      orderBy('added_at', 'asc')
+      where('session_id', '==', sid)
     );
     
-    const unsubscribe = onSnapshot(itemsQuery, (snapshot) => {
-      setItems(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as CartItem)));
-    });
+    const unsubscribe = onSnapshot(itemsQuery, 
+      (snapshot) => {
+        setItems(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as CartItem)));
+      },
+      (error: any) => {
+        console.error("Cart items snapshot error:", error);
+        if (error.message?.includes('index')) {
+          toast.error("Database index required. Check browser console (F12) for the link to fix it.");
+        }
+      }
+    );
 
     return () => unsubscribe();
-  }, [currentSessionId.current]);
+  }, [session?.id]);
 
   const createSession = useCallback(async (martId: string, branchId: string) => {
     if (!user) return null;
@@ -179,12 +199,6 @@ export function useSession() {
       
       const newSessionData = await getDoc(newSessionRef);
 
-      // Create cart record (as in supabase schema) - Note: not strictly necessary with nosql
-      await addDoc(collection(db, 'carts'), { 
-        session_id: newSessionRef.id,
-        created_at: new Date().toISOString()
-      });
-
       const sessionObj = { id: newSessionRef.id, ...newSessionData.data() } as ShoppingSession;
       setSession(sessionObj);
       currentSessionId.current = sessionObj.id;
@@ -210,6 +224,11 @@ export function useSession() {
     try {
       const existing = items.find(i => i.barcode === barcode);
       if (existing) {
+        if (existing.max_stock !== undefined && existing.quantity + 1 > existing.max_stock) {
+          toast.error(`Only ${existing.max_stock} units available in stock!`);
+          return false;
+        }
+
         await updateDoc(doc(db, 'cart_items', existing.id), { 
           quantity: existing.quantity + 1 
         });
@@ -218,25 +237,43 @@ export function useSession() {
         return true;
       }
 
-      // Vercel Serverless API fetch
-      const resp = await fetch('/api/inventory-lookup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ barcode, branch_id: session.branch_id })
-      });
+      // Hybrid Lookup: Check local Firestore first (faster, avoids local 404s)
+      const directProdSnap = await getDoc(doc(db, 'products', barcode));
+      let productData = null;
+
+      if (directProdSnap.exists()) {
+        productData = { barcode, ...directProdSnap.data() };
+      } else {
+        // Vercel Serverless API fetch (Fallback for external APIs or advanced logic)
+        try {
+          const resp = await fetch('/api/inventory-lookup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ barcode, branch_id: session.branch_id })
+          });
+          
+          if (resp.ok) {
+            const data = await resp.json();
+            if (data?.product) productData = data.product;
+          }
+        } catch (apiErr) {
+          console.error("API Lookup failed, possibly missing local function server:", apiErr);
+        }
+      }
       
-      if (!resp.ok) {
-        toast.error('Product not found');
-        return false;
-      }
-      const data = await resp.json();
-
-      if (!data?.product) {
+      if (!productData) {
         toast.error('Product not found');
         return false;
       }
 
-      const product = data.product;
+      const product = productData;
+      const stock = typeof product.stock === 'number' ? product.stock : 999;
+      
+      if (stock < 1) {
+        toast.error('This product is currently out of stock!');
+        return false;
+      }
+
       await addDoc(collection(db, 'cart_items'), {
         session_id: session.id,
         barcode: product.barcode,
@@ -246,6 +283,7 @@ export function useSession() {
         image_url: product.image_url || null,
         price: product.price,
         quantity: 1,
+        max_stock: stock,
         added_at: new Date().toISOString()
       });
 
@@ -263,6 +301,14 @@ export function useSession() {
 
   const updateQuantity = useCallback(async (itemId: string, quantity: number) => {
     if (!session || session.state !== 'ACTIVE') return;
+    
+    // Check against stock limit if setting a higher quantity
+    const item = items.find(i => i.id === itemId);
+    if (item && item.max_stock !== undefined && quantity > item.max_stock && quantity > item.quantity) {
+      toast.error(`Only ${item.max_stock} units available in stock!`);
+      return;
+    }
+
     if (quantity <= 0) {
       await deleteDoc(doc(db, 'cart_items', itemId));
     } else {
@@ -329,6 +375,72 @@ export function useSession() {
     }
   }, [session, items]);
 
+  const unlockCart = useCallback(async () => {
+    if (!session) return;
+    await updateDoc(doc(db, 'sessions', session.id), { 
+      state: 'ACTIVE',
+      updated_at: new Date().toISOString()
+    });
+  }, [session]);
+
+  const confirmManualPayment = useCallback(async () => {
+    if (!session || !user) return;
+    
+    const now = new Date().toISOString();
+    const totalQty = items.reduce((s, i) => s + i.quantity, 0);
+
+    // Fetch customer profile for name capture
+    let customerName = 'Customer';
+    try {
+      const profSnap = await getDoc(doc(db, 'profiles', user.uid));
+      if (profSnap.exists()) {
+        customerName = profSnap.data().display_name || user.email?.split('@')[0] || 'Customer';
+      }
+    } catch (e) {
+      console.warn("Could not fetch profile for invoice:", e);
+    }
+
+    // Create the invoice
+    await addDoc(collection(db, 'invoices'), {
+      session_id: session.id,
+      mart_id: session.mart_id,
+      branch_id: session.branch_id,
+      user_id: session.user_id,
+      customer_name: customerName,
+      invoice_number: `INV-${Date.now().toString(36).toUpperCase()}`,
+      items: items.map(item => ({
+        id: item.id,
+        barcode: item.barcode,
+        title: item.title,
+        price: item.price,
+        quantity: item.quantity,
+        image_url: item.image_url || null,
+        brand: item.brand || null,
+        category: item.category || null,
+      })),
+      total_amount: session.total_amount,
+      total_quantity: totalQty,
+      payment_method: session.payment_method || 'upi_app',
+      created_at: now,
+    });
+
+    // Mark session as paid
+    await updateDoc(doc(db, 'sessions', session.id), { 
+      state: 'PAID',
+      paid_at: now,
+      updated_at: now
+    });
+
+    // Decrement stock asynchronously
+    fetch('/api/decrement-stock', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items: items.map(i => ({ barcode: i.barcode, quantity: i.quantity })) })
+    }).catch(e => console.error("Failed to decrement stock:", e));
+
+    toast.success('Payment confirmed! Your receipt is ready.');
+  }, [session, user, items]);
+
   const endSession = useCallback(() => {
     setSession(null);
     setItems([]);
@@ -347,6 +459,8 @@ export function useSession() {
     removeItem,
     setPaymentMethod,
     lockCart,
+    unlockCart,
+    confirmManualPayment,
     endSession,
     fetchActiveSession,
   };

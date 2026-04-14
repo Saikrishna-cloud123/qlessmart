@@ -1,14 +1,38 @@
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { ShoppingCart, ScanBarcode, Shield, Zap, ArrowRight, Store, LogIn, LogOut, User, Receipt, ShieldCheck } from 'lucide-react';
+import { ShoppingCart, ScanBarcode, Shield, Zap, ArrowRight, Store, LogIn, LogOut, User, ShieldCheck, Receipt } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/useAuth';
 import { ThemeToggle } from '@/components/ThemeToggle';
+import { db } from '@/integrations/firebase/firebase';
+import { collection, query, where, getDocs, limit } from 'firebase/firestore';
 import ecartLogo from '@/assets/ecart-logo.png';
 
 const Index = () => {
   const { user, profile, signOut, hasRole } = useAuth();
   const navigate = useNavigate();
+  const [isAdminWithMart, setIsAdminWithMart] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (user && hasRole('admin')) {
+      const checkMart = async () => {
+        try {
+          const martQuery = query(collection(db, 'marts'), where('owner_id', '==', user.uid), limit(1));
+          const martSnap = await getDocs(martQuery);
+          if (!martSnap.empty) {
+            navigate('/admin/dashboard');
+          } else {
+            setIsAdminWithMart(false);
+          }
+        } catch (e) {
+          console.error("Failed to check mart status", e);
+          setIsAdminWithMart(false);
+        }
+      };
+      checkMart();
+    }
+  }, [user, hasRole, navigate]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -42,9 +66,11 @@ const Index = () => {
                     Admin
                   </Button>
                 )}
-                <Button variant="ghost" size="sm" onClick={() => navigate('/bills')}>
-                  <Receipt className="h-4 w-4 mr-1" /> Bills
-                </Button>
+                {!hasRole('admin') && (
+                  <Button variant="ghost" size="sm" onClick={() => navigate('/bills')}>
+                    <Receipt className="h-4 w-4 mr-1" /> My Bills
+                  </Button>
+                )}
                 <Button variant="ghost" size="sm" onClick={() => signOut()}>
                   <LogOut className="h-4 w-4 mr-1" /> Sign Out
                 </Button>
@@ -88,24 +114,39 @@ const Index = () => {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.2 }}
           >
-            <Button
-              size="lg"
-              className="gradient-primary border-0 px-8 text-base font-semibold text-primary-foreground shadow-lg hover:opacity-90"
-              onClick={() => navigate('/scan')}
-            >
-              <ScanBarcode className="mr-2 h-5 w-5" />
-              Start Scanning
-              <ArrowRight className="ml-2 h-4 w-4" />
-            </Button>
-            <Button
-              size="lg"
-              variant="outline"
-              className="px-8 text-base"
-              onClick={() => navigate('/register-mart')}
-            >
-              <Store className="mr-2 h-5 w-5" />
-              Register Your Store
-            </Button>
+            {!hasRole('admin') && (
+              <Button
+                size="lg"
+                className="gradient-primary border-0 px-8 text-base font-semibold text-primary-foreground shadow-lg hover:opacity-90"
+                onClick={() => navigate('/scan')}
+              >
+                <ScanBarcode className="mr-2 h-5 w-5" />
+                Start Scanning
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </Button>
+            )}
+            {user && !hasRole('admin') && (
+              <Button
+                size="lg"
+                variant="outline"
+                className="px-8 text-base"
+                onClick={() => navigate('/bills')}
+              >
+                <Receipt className="mr-2 h-5 w-5" />
+                My Bills
+              </Button>
+            )}
+            {user && hasRole('admin') && isAdminWithMart === false && (
+              <Button
+                size="lg"
+                variant="outline"
+                className="px-8 text-base"
+                onClick={() => navigate('/register-mart')}
+              >
+                <Store className="mr-2 h-5 w-5" />
+                Register Your Store
+              </Button>
+            )}
           </motion.div>
         </div>
       </header>

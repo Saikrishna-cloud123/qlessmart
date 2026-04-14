@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   ScanBarcode, Plus, Minus, Trash2, Lock, ShoppingCart, Package,
   ArrowLeft, Keyboard, Camera, Store, MapPin, CreditCard, Banknote,
-  Smartphone, QrCode, ChevronRight, Receipt, XCircle,
+  Smartphone, QrCode, ChevronRight, Receipt, XCircle, AlertCircle,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
@@ -16,7 +16,7 @@ import {
 import { useSession } from '@/hooks/useSession';
 import { useAuth } from '@/hooks/useAuth';
 import { db } from '@/integrations/firebase/firebase';
-import { collection, query, where, getDocs, getDoc, doc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, getDoc, doc, updateDoc, deleteDoc, orderBy } from 'firebase/firestore';
 import { toast } from 'sonner';
 import type { PaymentConfig } from '@/lib/storeConfig';
 
@@ -30,8 +30,16 @@ const ALL_PAYMENT_OPTIONS: { value: PaymentMethod; label: string; icon: any }[] 
   { value: 'razorpay', label: 'Pay Online', icon: CreditCard },
 ];
 
+// UPI app deep-link configs
+const UPI_APPS = [
+  { name: 'Google Pay', scheme: 'tez://upi/pay', color: '#4285F4', abbr: 'GPay' },
+  { name: 'PhonePe', scheme: 'phonepe://pay', color: '#5F259F', abbr: 'PhonePe' },
+  { name: 'Paytm', scheme: 'paytmmp://pay', color: '#00BAF2', abbr: 'Paytm' },
+  { name: 'BHIM UPI', scheme: 'upi://pay', color: '#00796B', abbr: 'BHIM' },
+];
+
 interface Mart { id: string; name: string; logo_url: string | null; }
-interface Branch { id: string; branch_name: string; is_default: boolean; }
+interface Branch { id: string; branch_name: string; address: string | null; is_default: boolean; }
 
 const CustomerScan = () => {
   const navigate = useNavigate();
@@ -39,7 +47,7 @@ const CustomerScan = () => {
   const {
     session, items, loading, storeConfig,
     createSession, lookupAndAddItem, updateQuantity, removeItem,
-    setPaymentMethod, lockCart, endSession,
+    setPaymentMethod, lockCart, unlockCart, confirmManualPayment, endSession,
   } = useSession();
 
   const [marts, setMarts] = useState<Mart[]>([]);
@@ -52,11 +60,16 @@ const CustomerScan = () => {
   const [storeScanMode, setStoreScanMode] = useState<'manual' | 'camera'>('manual');
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [upiLink, setUpiLink] = useState<string | null>(null);
+  const [upiDetails, setUpiDetails] = useState<{ pa: string; pn: string } | null>(null);
   const [martName, setMartName] = useState<string>('');
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLDivElement>(null);
   const storeVideoRef = useRef<HTMLDivElement>(null);
+
+  const totalQty = items.reduce((s, i) => s + i.quantity, 0);
+  const localTotalAmount = items.reduce((s, i) => s + (i.price * i.quantity), 0);
+
 
   // Filter payment options based on store config
   const paymentOptions = ALL_PAYMENT_OPTIONS.filter(opt =>
@@ -65,22 +78,37 @@ const CustomerScan = () => {
 
   useEffect(() => {
     if (session) {
-      if (session.state === 'ACTIVE') setStep('scan');
+      if (session.state === 'ACTIVE') {
+        // Only force 'scan' step if we aren't in 'payment' or 'locked' sub-steps
+        if (step !== 'payment' && step !== 'locked') {
+          setStep('scan');
+        }
+      }
       else if (session.state === 'LOCKED') setStep('locked');
       else if (['VERIFIED', 'PAID', 'CLOSED'].includes(session.state)) setStep('done');
       // Load mart name for active session
       if (!martName) {
         getDoc(doc(db, 'marts', session.mart_id))
-          .then((docSnap) => { if (docSnap.exists()) setMartName(docSnap.data().name); });
+          .then((docSnap) => { if (docSnap.exists()) setMartName(docSnap.data().name); })
+          .catch(e => toast.error(`Session mart load error: ${e.message}`));
       }
+    } else {
+      setStep('select-mart');
+      setMartName('');
+      setSelectedMart(null);
     }
   }, [session]);
 
   useEffect(() => {
-    getDocs(collection(db, 'marts')).then((snapshot) => {
-      const martsData = snapshot.docs.map(d => ({ id: d.id, name: d.data().name, logo_url: d.data().logo_url }));
-      setMarts(martsData);
-    });
+    getDocs(collection(db, 'marts'))
+      .then((snapshot) => {
+        const martsData = snapshot.docs.map(d => ({ id: d.id, name: d.data().name, logo_url: d.data().logo_url }));
+        setMarts(martsData);
+      })
+      .catch(e => {
+        console.error("Marts fetch error:", e);
+        toast.error(`Error loading stores: ${e.message}`);
+      });
   }, []);
 
   useEffect(() => {
@@ -88,7 +116,12 @@ const CustomerScan = () => {
     const q = query(collection(db, 'branches'), where('mart_id', '==', selectedMart));
     getDocs(q)
       .then((snapshot) => {
-        const data = snapshot.docs.map(d => ({ id: d.id, branch_name: d.data().branch_name, is_default: d.data().is_default }));
+        const data = snapshot.docs.map(d => ({ 
+          id: d.id, 
+          branch_name: d.data().branch_name, 
+          address: d.data().address || null,
+          is_default: d.data().is_default 
+        }));
         if (data.length > 0) {
           setBranches(data);
           if (data.length === 1) {
@@ -97,6 +130,10 @@ const CustomerScan = () => {
             setStep('select-branch');
           }
         }
+      })
+      .catch(e => {
+        console.error("Branches fetch error:", e);
+        toast.error(`Error loading branches: ${e.message}`);
       });
   }, [selectedMart]);
 
@@ -111,7 +148,7 @@ const CustomerScan = () => {
       // Validate store and branch
       const martDoc = await getDoc(doc(db, 'marts', martId));
       const branchDoc = await getDoc(doc(db, 'branches', branchId));
-      
+
       const martData = martDoc.data();
       const branchData = branchDoc.data();
       if (martDoc.exists() && branchDoc.exists() && branchData?.mart_id === martId) {
@@ -147,18 +184,44 @@ const CustomerScan = () => {
     await lookupAndAddItem(code.trim());
   }, [session, lookupAndAddItem]);
 
+  const handleScanRef = useRef(handleScan);
+  useEffect(() => {
+    handleScanRef.current = handleScan;
+  }, [handleScan]);
+
+  const stableHandleScan = useCallback(async (code: string) => {
+    await handleScanRef.current(code);
+  }, []);
+
+  const handleUPIPayment = (scheme: string = 'upi://pay') => {
+    if (!upiDetails?.pa) {
+      toast.error("Payment details not ready");
+      return;
+    }
+
+    const amount = localTotalAmount.toFixed(2);
+    const link = `${scheme}?pa=${encodeURIComponent(upiDetails.pa)}&pn=${encodeURIComponent(upiDetails.pn)}&am=${amount}&cu=INR`;
+
+    // Check if desktop
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    if (!isMobile) {
+      toast.info("UPI links work best on mobile devices with UPI apps installed.");
+    }
+
+    window.location.href = link;
+  };
+
   const handleProceedToPayment = () => setStep('payment');
 
   const cancelSession = async () => {
     if (!session) return;
     try {
-      const itemsQuery = query(collection(db, 'cart_items'), where('session_id', '==', session.id));
+      const itemsQuery = query(
+        collection(db, 'cart_items'),
+        where('session_id', '==', session.id)
+      );
       const itemsSnap = await getDocs(itemsQuery);
       await Promise.all(itemsSnap.docs.map(d => deleteDoc(doc(db, 'cart_items', d.id))));
-
-      const cartsQuery = query(collection(db, 'carts'), where('session_id', '==', session.id));
-      const cartsSnap = await getDocs(cartsQuery);
-      await Promise.all(cartsSnap.docs.map(d => deleteDoc(doc(db, 'carts', d.id))));
 
       await updateDoc(doc(db, 'sessions', session.id), { state: 'CLOSED' });
     } catch (e) {
@@ -166,6 +229,7 @@ const CustomerScan = () => {
     }
     endSession();
     setMartName('');
+    setSelectedMart(null);
     setStep('select-mart');
     setCancelDialogOpen(false);
     toast.success('Cart cancelled');
@@ -185,7 +249,7 @@ const CustomerScan = () => {
       const res = await fetch('/api/create-razorpay-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: session.id, amount: session.total_amount }),
+        body: JSON.stringify({ session_id: session.id, amount: localTotalAmount }),
       });
       const data = await res.json();
       if (!res.ok || !data?.order_id) throw new Error(data?.error || 'Failed to create order');
@@ -204,7 +268,7 @@ const CustomerScan = () => {
         key: data.key_id,
         amount: data.amount,
         currency: data.currency,
-        name: 'eCart',
+        name: martName || 'eCart',
         description: `Session ${session.session_code}`,
         order_id: data.order_id,
         handler: async (response: any) => {
@@ -238,29 +302,33 @@ const CustomerScan = () => {
     }
   };
 
-  // Generate UPI link from store config
+  // Generate UPI link from store config or mart settings
   useEffect(() => {
-    if (!session || session.state !== 'VERIFIED') return;
+    if (!session || !['ACTIVE', 'LOCKED', 'VERIFIED'].includes(session.state)) return;
     if (session.payment_method !== 'upi_app') return;
+
+    const generateLink = (pa: string, pn: string) => {
+      const amount = localTotalAmount.toFixed(2);
+      // Standard UPI format: upi://pay?pa=...&pn=...&am=...&cu=INR
+      const link = `upi://pay?pa=${encodeURIComponent(pa)}&pn=${encodeURIComponent(pn)}&am=${amount}&cu=INR`;
+      setUpiLink(link);
+      setUpiDetails({ pa, pn });
+    };
+
     const upiConfig = storeConfig.payment_config.upi;
     if (upiConfig?.pa) {
-      const link = upiConfig.url_format
-        .replace('{pa}', encodeURIComponent(upiConfig.pa))
-        .replace('{pn}', encodeURIComponent(upiConfig.pn))
-        .replace('{amount}', String(session.total_amount));
-      setUpiLink(link);
+      generateLink(upiConfig.pa, upiConfig.pn || 'Store');
     } else {
       // Fallback to mart table
       getDoc(doc(db, 'marts', session.mart_id))
         .then((docSnap) => {
           const data = docSnap.data();
           if (data?.upi_id) {
-            const link = `upi://pay?pa=${encodeURIComponent(data.upi_id)}&pn=${encodeURIComponent(data.merchant_name || 'Store')}&am=${session.total_amount}&cu=INR`;
-            setUpiLink(link);
+            generateLink(data.upi_id, data.merchant_name || data.name || 'Store');
           }
         });
     }
-  }, [session?.state, session?.payment_method, storeConfig]);
+  }, [session?.state, session?.payment_method, session?.mart_id, storeConfig, localTotalAmount]);
 
   // Camera scanner for product barcodes
   useEffect(() => {
@@ -273,12 +341,15 @@ const CustomerScan = () => {
         await html5QrCode.start(
           { facingMode: 'environment' },
           { fps: 10, qrbox: { width: 250, height: 100 } },
-          (decodedText: string) => {
-            handleScan(decodedText);
-            html5QrCode.pause();
-            setTimeout(() => { try { html5QrCode.resume(); } catch {} }, 2000);
+          async (decodedText: string) => {
+            if (html5QrCode.getState() === 2) { // 2 = scanning
+              html5QrCode.pause();
+              await stableHandleScan(decodedText);
+              // Resume with a slight delay to avoid multi-scans
+              setTimeout(() => { try { html5QrCode.resume(); } catch { } }, 1500);
+            }
           },
-          () => {}
+          () => { }
         );
       } catch {
         toast.error('Camera access denied');
@@ -286,8 +357,8 @@ const CustomerScan = () => {
       }
     };
     startScanner();
-    return () => { if (html5QrCode) { try { html5QrCode.stop(); } catch {} } };
-  }, [scanMode, handleScan, step]);
+    return () => { if (html5QrCode) { try { html5QrCode.stop(); } catch { } } };
+  }, [scanMode, stableHandleScan, step]);
 
   // Camera scanner for store QR selection
   useEffect(() => {
@@ -308,10 +379,10 @@ const CustomerScan = () => {
             const handled = await handleStoreQR(decodedText);
             if (!handled) {
               toast.error('Invalid QR format. Expected: store:{id}|branch:{id}');
-              setTimeout(() => { try { html5QrCode.resume(); } catch {} }, 2000);
+              setTimeout(() => { try { html5QrCode.resume(); } catch { } }, 2000);
             }
           },
-          () => {}
+          () => { }
         );
       } catch {
         toast.error('Camera access denied');
@@ -324,12 +395,12 @@ const CustomerScan = () => {
       clearTimeout(timer);
       const el = document.getElementById('store-qr-reader');
       if (el && (el as any).__html5QrCode) {
-        try { (el as any).__html5QrCode.stop(); } catch {}
+        try { (el as any).__html5QrCode.stop(); } catch { }
       }
     };
   }, [storeScanMode, step, session]);
 
-  const totalQty = items.reduce((s, i) => s + i.quantity, 0);
+
 
   // === STEP: Select Mart (with QR scan option) ===
   if (step === 'select-mart' && !session) {
@@ -349,7 +420,7 @@ const CustomerScan = () => {
             <QrCode className="mx-auto mb-2 h-8 w-8 text-primary" />
             <p className="text-sm font-semibold text-foreground mb-2">Scan Store QR Code</p>
             <p className="text-xs text-muted-foreground mb-3">Scan the QR at the store entrance to start</p>
-            
+
             <div className="flex gap-2 mb-3 justify-center">
               <Button
                 variant={storeScanMode === 'manual' ? 'default' : 'outline'}
@@ -457,8 +528,11 @@ const CustomerScan = () => {
               </div>
               <div className="flex-1">
                 <p className="font-medium text-foreground">{branch.branch_name}</p>
+                {branch.address && (
+                  <p className="text-xs text-muted-foreground">{branch.address}</p>
+                )}
                 {branch.is_default && (
-                  <span className="text-xs text-primary">Default branch</span>
+                  <span className="text-[10px] text-primary uppercase tracking-wider font-semibold">Default branch</span>
                 )}
               </div>
               <ChevronRight className="h-5 w-5 text-muted-foreground" />
@@ -469,8 +543,110 @@ const CustomerScan = () => {
     );
   }
 
-  // === STEP: Locked — show QR ===
+  // Helper for digital payment flow
+  const isDigital = session?.payment_method === 'upi_app' || session?.payment_method === 'razorpay';
+
+  // === STEP: Locked — show QR or Payment ===
   if (step === 'locked' && session?.state === 'LOCKED') {
+    if (isDigital) {
+      // Bypass cashier for digital methods
+      return (
+        <div className="flex min-h-screen flex-col items-center justify-center bg-background p-6 text-center">
+          <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="glass-card rounded-3xl p-8 max-w-sm w-full">
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
+              <ShoppingCart className="h-8 w-8 text-primary" />
+            </div>
+            <h2 className="mb-2 text-2xl font-bold text-foreground">Ready to Pay!</h2>
+            <p className="mb-2 text-sm text-muted-foreground">Complete your digital payment to proceed.</p>
+            <p className="font-mono text-2xl font-bold text-primary mb-4">₹{localTotalAmount.toFixed(2)}</p>
+
+            {session.payment_method === 'razorpay' && (
+              <Button
+                className="w-full gradient-primary border-0 text-primary-foreground py-5 text-base mb-4"
+                onClick={() => initiateRazorpay()}
+                disabled={paymentLoading}
+              >
+                {paymentLoading ? (
+                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary-foreground/30 border-t-primary-foreground" />
+                ) : (
+                  <><CreditCard className="mr-2 h-5 w-5" /> Pay with Razorpay</>
+                )}
+              </Button>
+            )}
+
+            {session.payment_method === 'upi_app' && (
+              <div className="space-y-4">
+                {upiLink && (
+                  <div className="mx-auto flex flex-col items-center">
+                    <div className="mb-4 rounded-2xl bg-white p-4 shadow-sm">
+                      <QRCodeSVG value={upiLink} size={180} level="H" />
+                    </div>
+                    {upiDetails && (
+                      <div className="mb-3 text-center">
+                        <p className="text-sm font-bold text-foreground">{upiDetails.pn}</p>
+                        <p className="text-xs text-muted-foreground">{upiDetails.pa}</p>
+                      </div>
+                    )}
+                    <p className="mb-4 text-xs text-muted-foreground uppercase tracking-wider font-semibold">
+                      Scan QR or pay via your favourite UPI app
+                    </p>
+
+                    {/* Individual UPI app buttons */}
+                    <div className="grid grid-cols-2 gap-2 w-full mb-4">
+                      {UPI_APPS.map(app => (
+                        <Button
+                          key={app.name}
+                          onClick={() => handleUPIPayment(app.scheme)}
+                          className="flex items-center justify-center gap-2 rounded-xl h-auto p-3 text-white text-sm font-bold border-0 transition-transform hover:scale-[1.02] active:scale-95 shadow-sm"
+                          style={{ backgroundColor: app.color }}
+                        >
+                          <Smartphone className="h-4 w-4" />
+                          {app.abbr}
+                        </Button>
+                      ))}
+                      <Button
+                        onClick={() => handleUPIPayment()}
+                        className="col-span-2 flex items-center justify-center gap-2 rounded-xl h-auto p-3 bg-primary text-primary-foreground text-sm font-bold border-0 transition-transform hover:scale-[1.01] active:scale-95 shadow-sm"
+                      >
+                        <QrCode className="h-4 w-4" />
+                        Any Other UPI App
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                <div className="rounded-xl border border-border bg-muted/30 p-3">
+                  <p className="text-[11px] text-muted-foreground mb-2">
+                    After paying, tap the button below to confirm.
+                    We cannot auto-detect UPI QR payments.
+                  </p>
+                  <Button
+                    className="w-full gradient-primary border-0 text-primary-foreground py-5 text-base"
+                    onClick={async () => {
+                      await confirmManualPayment();
+                    }}
+                  >
+                    I've Completed the Payment
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            <Button
+              variant="ghost"
+              className="mt-4 text-muted-foreground hover:text-primary transition-colors text-xs"
+              onClick={async () => {
+                await unlockCart();
+                setStep('payment');
+              }}
+            >
+              Change Payment Method
+            </Button>
+          </motion.div>
+        </div>
+      );
+    }
+
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-background p-6 text-center">
         <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="glass-card rounded-3xl p-8 max-w-sm w-full">
@@ -485,9 +661,21 @@ const CustomerScan = () => {
             SHA256 Hash: {session.cart_hash}
           </p>
           <p className="mb-6 text-xs text-muted-foreground">
-            {items.length} items · ₹{session.total_amount.toFixed(2)}
+            {items.length} items · ₹{localTotalAmount.toFixed(2)}
           </p>
-          <Button variant="outline" onClick={() => setStep('scan')}>View Cart</Button>
+          <div className="flex flex-col gap-2">
+            <Button variant="outline" onClick={() => setStep('scan')}>Edit Items</Button>
+            <Button
+              variant="ghost"
+              className="text-primary hover:text-primary/80"
+              onClick={async () => {
+                await unlockCart();
+                setStep('payment');
+              }}
+            >
+              Change Payment Method
+            </Button>
+          </div>
         </motion.div>
         <p className="mt-6 animate-pulse text-sm text-muted-foreground">Waiting for cashier verification...</p>
       </div>
@@ -511,7 +699,7 @@ const CustomerScan = () => {
                 ? 'Complete payment to proceed.'
                 : 'Proceed to payment at the counter.'}
             </p>
-            <p className="font-mono text-2xl font-bold text-primary mb-4">₹{session.total_amount.toFixed(2)}</p>
+            <p className="font-mono text-2xl font-bold text-primary mb-4">₹{localTotalAmount.toFixed(2)}</p>
 
             {(session.payment_method === 'upi_app' || session.payment_method === 'razorpay') && (
               <Button
@@ -527,13 +715,69 @@ const CustomerScan = () => {
               </Button>
             )}
 
-            {session.payment_method === 'upi_app' && upiLink && (
-              <a href={upiLink} className="block text-center text-sm text-primary underline mb-3">
-                Open UPI App
-              </a>
+            {session.payment_method === 'upi_app' && (
+              <div className="space-y-4 mb-3">
+                {upiLink && (
+                  <div className="mx-auto flex flex-col items-center">
+                    <div className="mb-3 rounded-xl bg-white p-3 shadow-sm border border-border">
+                      <QRCodeSVG value={upiLink} size={140} level="H" />
+                    </div>
+                    {upiDetails && (
+                      <div className="mb-3 text-center">
+                        <p className="text-sm font-bold text-foreground">{upiDetails.pn}</p>
+                        <p className="text-xs text-muted-foreground truncate max-w-[200px]">{upiDetails.pa}</p>
+                      </div>
+                    )}
+                    <p className="mb-3 text-[10px] text-muted-foreground uppercase tracking-widest font-bold">
+                      Scan to Pay ₹{localTotalAmount.toFixed(2)}
+                    </p>
+
+                    {/* Individual UPI app buttons */}
+                    <div className="grid grid-cols-2 gap-2 w-full mb-3">
+                      {UPI_APPS.map(app => (
+                        <Button
+                          key={app.name}
+                          onClick={() => handleUPIPayment(app.scheme)}
+                          className="flex items-center justify-center gap-2 rounded-xl h-auto p-2.5 text-white text-xs font-bold border-0 transition-transform hover:scale-[1.02] active:scale-95 shadow-sm"
+                          style={{ backgroundColor: app.color }}
+                        >
+                          <Smartphone className="h-3.5 w-3.5" />
+                          {app.abbr}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="rounded-xl border border-border bg-muted/30 p-3">
+                  <p className="text-[11px] text-muted-foreground mb-2">
+                    After paying, tap below to confirm and view your invoice.
+                  </p>
+                  <Button
+                    className="w-full gradient-primary border-0 text-primary-foreground py-5 text-base"
+                    onClick={async () => {
+                      await confirmManualPayment();
+                    }}
+                  >
+                    I've Completed the Payment
+                  </Button>
+                </div>
+              </div>
             )}
 
-            <p className="animate-pulse text-xs text-muted-foreground">Waiting for payment confirmation...</p>
+            <p className="animate-pulse text-xs text-muted-foreground mb-4">Waiting for payment confirmation...</p>
+
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground hover:text-primary transition-colors"
+              onClick={async () => {
+                await unlockCart();
+                setStep('payment');
+              }}
+            >
+              Change Payment Method
+            </Button>
           </motion.div>
         </div>
       );
@@ -551,7 +795,7 @@ const CustomerScan = () => {
           <p className="mb-4 text-sm text-muted-foreground">
             {state === 'PAID' ? 'Show receipt QR at the exit.' : 'Thank you for shopping!'}
           </p>
-          <p className="font-mono text-2xl font-bold text-primary">₹{session?.total_amount.toFixed(2)}</p>
+          <p className="font-mono text-2xl font-bold text-primary">₹{localTotalAmount.toFixed(2)}</p>
           {state === 'PAID' && session && (
             <div className="mt-4">
               <QRCodeSVG value={`receipt:${session.id}`} size={120} level="H" />
@@ -588,7 +832,7 @@ const CustomerScan = () => {
         <div className="mx-auto max-w-md p-6">
           <div className="mb-6 rounded-xl border-2 border-primary/20 bg-primary/5 p-4 text-center">
             <p className="text-sm text-muted-foreground">Total</p>
-            <p className="text-3xl font-bold text-primary">₹{session?.total_amount.toFixed(2)}</p>
+            <p className="text-3xl font-bold text-primary">₹{localTotalAmount.toFixed(2)}</p>
             <p className="text-xs text-muted-foreground">{totalQty} items</p>
           </div>
           <div className="space-y-3">
@@ -717,17 +961,42 @@ const CustomerScan = () => {
                   <p className="text-sm font-bold text-primary">₹{item.price.toFixed(2)}</p>
                 </div>
                 {session?.state === 'ACTIVE' && (
-                  <div className="flex items-center gap-1">
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => updateQuantity(item.id, item.quantity - 1)}>
-                      <Minus className="h-3.5 w-3.5" />
-                    </Button>
-                    <span className="w-6 text-center text-sm font-bold text-foreground">{item.quantity}</span>
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => updateQuantity(item.id, item.quantity + 1)}>
-                      <Plus className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => removeItem(item.id)}>
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
+                  <div className="flex flex-col items-end gap-1">
+                    <div className="flex items-center gap-1">
+                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => updateQuantity(item.id, item.quantity - 1)}>
+                        <Minus className="h-3.5 w-3.5" />
+                      </Button>
+                      <span className="w-6 text-center text-sm font-bold text-foreground">{item.quantity}</span>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                        disabled={item.max_stock !== undefined && item.quantity >= item.max_stock}
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => removeItem(item.id)}>
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                    {item.max_stock !== undefined && (
+                      <div className="flex flex-col items-end">
+                        {item.quantity >= item.max_stock ? (
+                          <span className="text-[10px] font-bold text-destructive flex items-center gap-0.5">
+                            <AlertCircle className="h-2.5 w-2.5" /> Stock limit reached
+                          </span>
+                        ) : item.max_stock < 10 && (
+                          <span className="text-[10px] font-medium text-warning-foreground">
+                            Only {item.max_stock} units left
+                          </span>
+                        ) || (
+                          <span className="text-[10px] text-muted-foreground">
+                            In stock: {item.max_stock}
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </motion.div>
@@ -737,13 +1006,13 @@ const CustomerScan = () => {
       </div>
 
       {/* Bottom bar */}
-      {items.length > 0 && session?.state === 'ACTIVE' && session.total_amount > 0 && (
-        <div className="sticky bottom-0 border-t border-border bg-card p-4">
+      {items.length > 0 && session?.state === 'ACTIVE' && (
+        <div className="sticky bottom-0 border-t border-border bg-card p-4 shadow-[0_-4px_10px_rgba(0,0,0,0.05)]">
           <div className="mb-3 flex items-center justify-between">
-            <span className="text-sm text-muted-foreground">{totalQty} items</span>
-            <span className="text-xl font-bold text-foreground">₹{session.total_amount.toFixed(2)}</span>
+            <span className="text-sm font-medium text-muted-foreground">{totalQty} items</span>
+            <span className="text-2xl font-bold text-primary">₹{localTotalAmount.toFixed(2)}</span>
           </div>
-          <Button className="w-full gradient-primary border-0 text-primary-foreground text-base font-semibold py-6" onClick={handleProceedToPayment}>
+          <Button className="w-full gradient-primary border-0 text-primary-foreground text-base font-bold py-7 shadow-lg" onClick={handleProceedToPayment}>
             <Lock className="mr-2 h-5 w-5" /> Proceed to Checkout
           </Button>
         </div>

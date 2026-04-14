@@ -67,14 +67,6 @@ const RegisterMart = () => {
         config: JSON.parse(JSON.stringify(DEFAULT_STORE_CONFIG)),
       });
 
-      // Explicitly assign admin role to the owner in Firestore
-      await setDoc(doc(db, 'user_roles', `${user.uid}_admin`), {
-        user_id: user.uid,
-        role: 'admin',
-        assigned_at: new Date().toISOString()
-      });
-
-      await refreshRoles();
       setMartId(martRef.id);
       toast.success('Store created!');
       setStep('branch');

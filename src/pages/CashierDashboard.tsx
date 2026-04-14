@@ -93,7 +93,7 @@ const CashierDashboard = () => {
         setEmployeeMartId(data.mart_id);
         const martDoc = await getDoc(doc(db, 'marts', data.mart_id));
         if (martDoc.exists()) setMartName(martDoc.data().name);
-        
+
         if (data.branch_id) {
           const branchDoc = await getDoc(doc(db, 'branches', data.branch_id));
           if (branchDoc.exists()) {
@@ -187,7 +187,7 @@ const CashierDashboard = () => {
     const itemsQuery = query(collection(db, 'cart_items'), where('session_id', '==', sess.id));
     const itemsSnap = await getDocs(itemsQuery);
     setSessionItems(itemsSnap.docs.map(d => ({ id: d.id, ...d.data() } as CartItem)));
-    
+
     const profDoc = await getDoc(doc(db, 'profiles', sess.user_id));
     if (profDoc.exists()) setCustomerName(profDoc.data().display_name || 'Customer');
     else setCustomerName('Customer');
@@ -197,14 +197,14 @@ const CashierDashboard = () => {
   const handleScanQR = async () => {
     const input = scanInput.trim();
     if (!input) return;
-    
+
     // Check if input is a valid document ID
     const sessRef = doc(db, 'sessions', input);
     let sessionData: any = null;
     try {
       const sessDoc = await getDoc(sessRef);
       if (sessDoc.exists()) sessionData = { id: sessDoc.id, ...sessDoc.data() };
-    } catch(e) {}
+    } catch (e) { }
 
     // If not found by ID, check by session_code
     if (!sessionData) {
@@ -243,14 +243,14 @@ const CashierDashboard = () => {
               try {
                 const sessDoc = await getDoc(doc(db, 'sessions', decodedText));
                 if (sessDoc.exists()) sessionData = { id: sessDoc.id, ...sessDoc.data() };
-              } catch(e) {}
-              
+              } catch (e) { }
+
               if (!sessionData) {
                 const q = query(collection(db, 'sessions'), where('session_code', '==', decodedText), limit(1));
                 const scanSnap = await getDocs(q);
                 if (!scanSnap.empty) sessionData = { id: scanSnap.docs[0].id, ...scanSnap.docs[0].data() };
               }
-              
+
               if (sessionData && sessionData.state === 'LOCKED') {
                 loadSessionDetail(sessionData as SessionRow);
               } else if (sessionData) {
@@ -261,7 +261,7 @@ const CashierDashboard = () => {
             })();
             html5QrCode.pause();
           },
-          () => {}
+          () => { }
         );
       } catch (err) {
         toast.error('Camera access denied');
@@ -269,7 +269,7 @@ const CashierDashboard = () => {
       }
     };
     startScanner();
-    return () => { if (html5QrCode) { try { html5QrCode.stop(); } catch {} } };
+    return () => { if (html5QrCode) { try { html5QrCode.stop(); } catch { } } };
   }, [qrScannerActive, loadSessionDetail]);
 
   /* ── Cart actions ── */
@@ -284,7 +284,7 @@ const CashierDashboard = () => {
       toast.success('Cart verified!');
       setSelectedSession(prev => prev ? { ...prev, state: 'VERIFIED', verified_by: user.uid } : null);
       fetchSessions();
-    } catch(error) {
+    } catch (error) {
       toast.error('Failed to verify');
     }
   };
@@ -309,8 +309,11 @@ const CashierDashboard = () => {
     await addDoc(collection(db, 'invoices'), {
       session_id: selectedSession.id,
       mart_id: selectedSession.mart_id,
-      branch_id: selectedSession.branch_id,
+      branch_id: selectedSession.branch_id || null,
       user_id: selectedSession.user_id,
+      customer_name: customerName || 'Customer',
+      cashier_id: user.uid,
+      cashier_name: profile?.display_name || 'Cashier',
       invoice_number: `INV-${Date.now().toString(36).toUpperCase()}`,
       items: sessionItems as any,
       total_amount: selectedSession.total_amount,
@@ -327,6 +330,15 @@ const CashierDashboard = () => {
         body: JSON.stringify({ session_id: selectedSession.id })
       });
     } catch (e) { console.log('Invoice delivery skipped:', e); }
+
+    // Deduct stock
+    try {
+      await fetch('/api/decrement-stock', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: sessionItems.map(i => ({ barcode: i.barcode, quantity: i.quantity })) })
+      });
+    } catch (e) { console.log('Stock deduction skipped:', e); }
 
     if (user) {
       await addDoc(collection(db, 'audit_logs'), {
@@ -368,14 +380,14 @@ const CashierDashboard = () => {
       });
       const data = await res.json();
       if (!res.ok || !data?.product) { toast.error('Product not found'); return; }
-      
+
       const p = data.product;
       const newItemRef = await addDoc(collection(db, 'cart_items'), {
         session_id: selectedSession.id, barcode: p.barcode, title: p.title,
         brand: p.brand || null, category: p.category || null, image_url: p.image_url || null, price: p.price, quantity: 1,
         added_at: new Date().toISOString(),
       });
-      
+
       const newItemSnap = await getDoc(newItemRef);
       if (newItemSnap.exists()) {
         setSessionItems(prev => [...prev, { id: newItemSnap.id, ...newItemSnap.data() } as CartItem]);
@@ -385,7 +397,7 @@ const CashierDashboard = () => {
         toast.success(`Added: ${p.title}`);
         setAddBarcode('');
       }
-    } catch(e) {
+    } catch (e) {
       toast.error('Error adding product');
     } finally { setAddingItem(false); }
   };
@@ -744,8 +756,8 @@ const CashierDashboard = () => {
                       >
                         <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
                           {sess.state === 'LOCKED' ? <Shield className="h-4 w-4 text-yellow-500" /> :
-                           sess.state === 'VERIFIED' ? <ShieldCheck className="h-4 w-4 text-blue-500" /> :
-                           <CheckCircle2 className="h-4 w-4 text-primary" />}
+                            sess.state === 'VERIFIED' ? <ShieldCheck className="h-4 w-4 text-blue-500" /> :
+                              <CheckCircle2 className="h-4 w-4 text-primary" />}
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="font-mono text-sm font-medium text-foreground">{sess.session_code}</p>
@@ -833,8 +845,8 @@ const CashierDashboard = () => {
                     >
                       <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
                         {sess.state === 'LOCKED' ? <Shield className="h-5 w-5 text-yellow-500" /> :
-                         sess.state === 'VERIFIED' ? <ShieldCheck className="h-5 w-5 text-blue-500" /> :
-                         <CheckCircle2 className="h-5 w-5 text-primary" />}
+                          sess.state === 'VERIFIED' ? <ShieldCheck className="h-5 w-5 text-blue-500" /> :
+                            <CheckCircle2 className="h-5 w-5 text-primary" />}
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="font-mono text-sm font-medium text-foreground">{sess.session_code}</p>

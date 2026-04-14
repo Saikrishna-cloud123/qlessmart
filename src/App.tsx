@@ -15,6 +15,7 @@ import AdminDashboard from "./pages/AdminDashboard";
 import MyBills from "./pages/MyBills";
 import ExitScan from "./pages/ExitScan";
 import RegisterMart from "./pages/RegisterMart";
+import VerifyEmail from "./pages/VerifyEmail";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -30,6 +31,11 @@ const App = () => (
             <Route path="/" element={<Index />} />
             <Route path="/auth" element={<Auth />} />
             <Route path="/reset-password" element={<ResetPassword />} />
+            <Route path="/verify-email" element={
+              <ProtectedRoute>
+                <VerifyEmail />
+              </ProtectedRoute>
+            } />
 
             {/* Customer-only routes */}
             <Route path="/dashboard" element={
@@ -62,7 +68,7 @@ const App = () => (
               </ProtectedRoute>
             } />
             <Route path="/register-mart" element={
-              <ProtectedRoute>
+              <ProtectedRoute requiredRole="admin">
                 <RegisterMart />
               </ProtectedRoute>
             } />

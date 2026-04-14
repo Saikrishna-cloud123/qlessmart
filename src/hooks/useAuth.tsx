@@ -6,10 +6,15 @@ import {
   signOut as firebaseSignOut, 
   onAuthStateChanged, 
   updateProfile as firebaseUpdateProfile,
+  sendEmailVerification,
+  reload,
+  GoogleAuthProvider,
+  signInWithPopup,
   type User 
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import type { Profile, AppRole } from '@/integrations/firebase/types';
+
 
 interface AuthContextType {
   user: User | null;
@@ -22,6 +27,9 @@ interface AuthContextType {
   updateProfile: (updates: Partial<Profile>) => Promise<{ error: any }>;
   hasRole: (role: AppRole) => boolean;
   refreshRoles: () => Promise<void>;
+  refreshUser: () => Promise<void>;
+  sendVerificationEmail: () => Promise<{ error: any }>;
+  signInWithGoogle: () => Promise<{ error: any }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -76,21 +84,76 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     mountedRef.current = true;
 
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (!mountedRef.current) return;
       
-      setUser(currentUser);
+      try {
+        if (currentUser) {
+          setLoading(true);
+          setUser(currentUser);
+          
+          // Check if verified user needs profile/role creation
+          if (currentUser.emailVerified) {
+            const profileDocRef = doc(db, 'profiles', currentUser.uid);
+            const snap = await getDoc(profileDocRef);
+            
+            if (!snap.exists()) {
+              // First time login after verification - Create Firestore docs
+              try {
+                await setDoc(doc(db, 'profiles', currentUser.uid), {
+                  display_name: currentUser.displayName || 'Shopper',
+                  email: currentUser.email,
+                  avatar_url: null,
+                  created_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString(),
+                });
+                
+                // Default customer role
+                await setDoc(doc(db, 'user_roles', `${currentUser.uid}_customer`), {
+                  user_id: currentUser.uid,
+                  role: 'customer',
+                  assigned_at: new Date().toISOString(),
+                });
+              } catch (e) {
+                console.error("Auto-initialization failed:", e);
+              }
+            }
 
-      if (currentUser) {
-        setLoading(true);
-        loadUserData(currentUser.uid).then(() => {
-          if (mountedRef.current) setLoading(false);
-        });
-      } else {
-        currentUserIdRef.current = null;
-        setProfile(null);
-        setRoles([]);
-        setLoading(false);
+            // Server-side role sync (uses admin SDK to bypass Firestore rules)
+            try {
+              const idToken = await currentUser.getIdToken();
+              console.log("[Auth] Syncing roles via API...");
+              const syncRes = await fetch('/api/sync-user-roles', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ idToken }),
+              });
+              const syncData = await syncRes.json();
+              if (syncRes.ok) {
+                console.log("[Auth] Role sync success:", syncData.roles);
+              } else {
+                console.error("[Auth] Role sync failed:", syncData.error);
+              }
+            } catch (syncErr) {
+              console.error("[Auth] Role sync API error:", syncErr);
+            }
+
+            await loadUserData(currentUser.uid);
+          } else {
+            // Unverified user - clear profile/roles to prevent access
+            setProfile(null);
+            setRoles([]);
+          }
+        } else {
+          currentUserIdRef.current = null;
+          setUser(null);
+          setProfile(null);
+          setRoles([]);
+        }
+      } catch (error) {
+        console.error("Auth state change error:", error);
+      } finally {
+        if (mountedRef.current) setLoading(false);
       }
     });
 
@@ -104,28 +167,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       await firebaseUpdateProfile(userCredential.user, { displayName });
-      
-      const uid = userCredential.user.uid;
-      
-      // Create profile document in Firestore (no Cloud Functions on Spark Plan)
-      await setDoc(doc(db, 'profiles', uid), {
-        display_name: displayName,
-        email: email,
-        avatar_url: null,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      });
+      await sendEmailVerification(userCredential.user);
+      console.log("Verification email successfully sent to:", userCredential.user.email);
+      return { error: null };
+    } catch (error: any) {
+      console.error("Signup/Verification Error:", error);
+      return { error };
+    }
+  };
 
-      // Assign default 'customer' role
-      await setDoc(doc(db, 'user_roles', `${uid}_customer`), {
-        user_id: uid,
-        role: 'customer',
-        assigned_at: new Date().toISOString(),
-      });
-
+  const sendVerificationEmail = async () => {
+    if (!user) return { error: { message: "No user logged in" } };
+    try {
+      await sendEmailVerification(user);
       return { error: null };
     } catch (error: any) {
       return { error };
+    }
+  };
+
+  const refreshUser = async () => {
+    if (!auth.currentUser) return;
+    try {
+      await reload(auth.currentUser);
+      const updatedUser = { ...auth.currentUser };
+      setUser(updatedUser as any);
+      if (updatedUser.emailVerified && !profile) {
+        await loadUserData(updatedUser.uid);
+      }
+    } catch (error) {
+      console.error("Error refreshing user:", error);
     }
   };
 
@@ -165,12 +236,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const signInWithGoogle = async () => {
+    try {
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: 'select_account' });
+      await signInWithPopup(auth, provider);
+      return { error: null };
+    } catch (error: any) {
+      console.error("Google Sign-In Error:", error);
+      return { error };
+    }
+  };
+
   const hasRole = (role: AppRole) => roles.includes(role);
 
   return (
     <AuthContext.Provider value={{
       user, profile, roles, loading,
-      signUp, signIn, signOut, updateProfile, hasRole, refreshRoles,
+      signUp, signIn, signOut, updateProfile, hasRole, refreshRoles, refreshUser, sendVerificationEmail, signInWithGoogle
     }}>
       {children}
     </AuthContext.Provider>
