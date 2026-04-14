@@ -386,59 +386,63 @@ export function useSession() {
   const confirmManualPayment = useCallback(async () => {
     if (!session || !user) return;
     
-    const now = new Date().toISOString();
-    const totalQty = items.reduce((s, i) => s + i.quantity, 0);
-
-    // Fetch customer profile for name capture
-    let customerName = 'Customer';
     try {
-      const profSnap = await getDoc(doc(db, 'profiles', user.uid));
-      if (profSnap.exists()) {
-        customerName = profSnap.data().display_name || user.email?.split('@')[0] || 'Customer';
+      const now = new Date().toISOString();
+      const totalQty = items.reduce((s, i) => s + i.quantity, 0);
+
+      // Check if invoice already exists to prevent duplicate work
+      const invQ = query(collection(db, 'invoices'), where('session_id', '==', session.id));
+      const invSnap = await getDocs(invQ);
+
+      if (invSnap.empty) {
+        let customerName = 'Customer';
+        try {
+          const profSnap = await getDoc(doc(db, 'profiles', user.uid));
+          if (profSnap.exists()) {
+            customerName = profSnap.data().display_name || user.email?.split('@')[0] || 'Customer';
+          }
+        } catch (e) { }
+
+        await addDoc(collection(db, 'invoices'), {
+          session_id: session.id,
+          mart_id: session.mart_id,
+          branch_id: session.branch_id,
+          user_id: session.user_id,
+          customer_name: customerName,
+          invoice_number: `INV-${Date.now().toString(36).toUpperCase()}`,
+          items: items.map(item => ({
+            id: item.id,
+            barcode: item.barcode,
+            title: item.title,
+            price: item.price,
+            quantity: item.quantity,
+          })),
+          total_amount: session.total_amount,
+          total_quantity: totalQty,
+          payment_method: session.payment_method || 'cash',
+          created_at: now,
+        });
+
+        // Decrement stock only once
+        fetch('/api/decrement-stock', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ items: items.map(i => ({ barcode: i.barcode, quantity: i.quantity })) })
+        }).catch(() => {});
       }
-    } catch (e) {
-      console.warn("Could not fetch profile for invoice:", e);
+
+      // Mark session as paid
+      await updateDoc(doc(db, 'sessions', session.id), { 
+        state: 'PAID',
+        paid_at: now,
+        updated_at: now
+      });
+
+      toast.success('Payment confirmed! Your receipt is ready.');
+    } catch (err: any) {
+      console.error(err);
+      toast.error('Failed to confirm payment: ' + err.message);
     }
-
-    // Create the invoice
-    await addDoc(collection(db, 'invoices'), {
-      session_id: session.id,
-      mart_id: session.mart_id,
-      branch_id: session.branch_id,
-      user_id: session.user_id,
-      customer_name: customerName,
-      invoice_number: `INV-${Date.now().toString(36).toUpperCase()}`,
-      items: items.map(item => ({
-        id: item.id,
-        barcode: item.barcode,
-        title: item.title,
-        price: item.price,
-        quantity: item.quantity,
-        image_url: item.image_url || null,
-        brand: item.brand || null,
-        category: item.category || null,
-      })),
-      total_amount: session.total_amount,
-      total_quantity: totalQty,
-      payment_method: session.payment_method || 'upi_app',
-      created_at: now,
-    });
-
-    // Mark session as paid
-    await updateDoc(doc(db, 'sessions', session.id), { 
-      state: 'PAID',
-      paid_at: now,
-      updated_at: now
-    });
-
-    // Decrement stock asynchronously
-    fetch('/api/decrement-stock', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items: items.map(i => ({ barcode: i.barcode, quantity: i.quantity })) })
-    }).catch(e => console.error("Failed to decrement stock:", e));
-
-    toast.success('Payment confirmed! Your receipt is ready.');
   }, [session, user, items]);
 
   const endSession = useCallback(() => {

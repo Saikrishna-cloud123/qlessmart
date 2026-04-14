@@ -65,6 +65,7 @@ const CashierDashboard = () => {
   const [scanInput, setScanInput] = useState('');
   const [addBarcode, setAddBarcode] = useState('');
   const [addingItem, setAddingItem] = useState(false);
+  const [processingPayment, setProcessingPayment] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
 
   // Profile settings
@@ -196,6 +197,18 @@ const CashierDashboard = () => {
     else setCustomerName('Customer');
   }, []);
 
+  // Sync selected session in real-time
+  useEffect(() => {
+    if (!selectedSession?.id) return;
+    const unsub = onSnapshot(doc(db, 'sessions', selectedSession.id), (docSnap) => {
+      if (docSnap.exists()) {
+        const updated = { id: docSnap.id, ...docSnap.data() } as SessionRow;
+        setSelectedSession(updated);
+      }
+    });
+    return () => unsub();
+  }, [selectedSession?.id]);
+
   /* ── QR Scan ── */
   const handleScanQR = async () => {
     const input = scanInput.trim();
@@ -216,11 +229,13 @@ const CashierDashboard = () => {
       if (!scanSnap.empty) sessionData = { id: scanSnap.docs[0].id, ...scanSnap.docs[0].data() };
     }
 
-    if (sessionData && sessionData.state === 'LOCKED') {
+    if (sessionData && ['LOCKED', 'VERIFIED', 'PAID'].includes(sessionData.state)) {
       loadSessionDetail(sessionData as SessionRow);
       setScanInput('');
     } else if (sessionData) {
       toast.error(`Session state is ${sessionData.state}`);
+      // Even if not strictly for billing, load it so cashier can see what's wrong
+      loadSessionDetail(sessionData as SessionRow);
     } else {
       toast.error('Session not found');
     }
@@ -238,31 +253,30 @@ const CashierDashboard = () => {
           { facingMode: 'environment' },
           { fps: 10, qrbox: { width: 250, height: 250 } },
           (decodedText: string) => {
-            setScanInput(decodedText);
+            const inputCode = decodedText.trim();
             setQrScannerActive(false);
-            // Auto-lookup
             (async () => {
               let sessionData: any = null;
               try {
-                const sessDoc = await getDoc(doc(db, 'sessions', decodedText));
+                const sessDoc = await getDoc(doc(db, 'sessions', inputCode));
                 if (sessDoc.exists()) sessionData = { id: sessDoc.id, ...sessDoc.data() };
               } catch (e) { }
 
               if (!sessionData) {
-                const q = query(collection(db, 'sessions'), where('session_code', '==', decodedText), limit(1));
+                const q = query(collection(db, 'sessions'), where('session_code', '==', inputCode), limit(1));
                 const scanSnap = await getDocs(q);
                 if (!scanSnap.empty) sessionData = { id: scanSnap.docs[0].id, ...scanSnap.docs[0].data() };
               }
 
-              if (sessionData && sessionData.state === 'LOCKED') {
+              if (sessionData && ['LOCKED', 'VERIFIED', 'PAID'].includes(sessionData.state)) {
                 loadSessionDetail(sessionData as SessionRow);
               } else if (sessionData) {
                 toast.error(`Session state is ${sessionData.state}`);
+                loadSessionDetail(sessionData as SessionRow);
               } else {
                 toast.error('Session not found');
               }
             })();
-            html5QrCode.pause();
           },
           () => { }
         );
@@ -301,60 +315,75 @@ const CashierDashboard = () => {
   };
 
   const markPaid = async () => {
-    if (!selectedSession) return;
-    await addDoc(collection(db, 'payments'), {
-      session_id: selectedSession.id,
-      amount: selectedSession.total_amount,
-      method: (selectedSession.payment_method || 'cash') as any,
-      status: 'completed',
-      paid_at: new Date().toISOString(),
-    });
-    await addDoc(collection(db, 'invoices'), {
-      session_id: selectedSession.id,
-      mart_id: selectedSession.mart_id,
-      branch_id: selectedSession.branch_id || null,
-      user_id: selectedSession.user_id,
-      customer_name: customerName || 'Customer',
-      cashier_id: user.uid,
-      cashier_name: profile?.display_name || 'Cashier',
-      invoice_number: `INV-${Date.now().toString(36).toUpperCase()}`,
-      items: sessionItems as any,
-      total_amount: selectedSession.total_amount,
-      total_quantity: sessionItems.reduce((s, i) => s + i.quantity, 0),
-      payment_method: (selectedSession.payment_method || 'cash') as any,
-      created_at: new Date().toISOString(),
-    });
-    await updateDoc(doc(db, 'sessions', selectedSession.id), { state: 'PAID' });
-
+    if (!selectedSession || processingPayment) return;
+    setProcessingPayment(true);
     try {
-      await fetch('/api/deliver-invoice', {
+      // Check if payment already recorded
+      const payQ = query(collection(db, 'payments'), where('session_id', '==', selectedSession.id));
+      const paySnap = await getDocs(payQ);
+      if (paySnap.empty) {
+        await addDoc(collection(db, 'payments'), {
+          session_id: selectedSession.id,
+          amount: selectedSession.total_amount,
+          method: (selectedSession.payment_method || 'cash') as any,
+          status: 'completed',
+          paid_at: new Date().toISOString(),
+        });
+      }
+
+      // Check if invoice already exists
+      const invQ = query(collection(db, 'invoices'), where('session_id', '==', selectedSession.id));
+      const invSnap = await getDocs(invQ);
+      if (invSnap.empty) {
+        await addDoc(collection(db, 'invoices'), {
+          session_id: selectedSession.id,
+          mart_id: selectedSession.mart_id,
+          branch_id: selectedSession.branch_id || null,
+          user_id: selectedSession.user_id,
+          customer_name: customerName || 'Customer',
+          cashier_id: user.uid,
+          cashier_name: profile?.display_name || 'Cashier',
+          invoice_number: `INV-${Date.now().toString(36).toUpperCase()}`,
+          items: sessionItems as any,
+          total_amount: selectedSession.total_amount,
+          total_quantity: sessionItems.reduce((s, i) => s + i.quantity, 0),
+          payment_method: (selectedSession.payment_method || 'cash') as any,
+          created_at: new Date().toISOString(),
+        });
+      }
+
+      await updateDoc(doc(db, 'sessions', selectedSession.id), { state: 'PAID' });
+
+      // Notify and background tasks
+      fetch('/api/deliver-invoice', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ session_id: selectedSession.id })
-      });
-    } catch (e) { console.log('Invoice delivery skipped:', e); }
+      }).catch(e => console.log('Invoice delivery skipped'));
 
-    // Deduct stock
-    try {
-      await fetch('/api/decrement-stock', {
+      fetch('/api/decrement-stock', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ items: sessionItems.map(i => ({ barcode: i.barcode, quantity: i.quantity })) })
-      });
-    } catch (e) { console.log('Stock deduction skipped:', e); }
+      }).catch(e => console.log('Stock deduction skipped'));
 
-    if (user) {
-      await addDoc(collection(db, 'audit_logs'), {
-        action: 'PAYMENT_COMPLETED',
-        user_id: user.uid,
-        session_id: selectedSession.id,
-        details: { amount: selectedSession.total_amount, method: selectedSession.payment_method },
-        created_at: new Date().toISOString(),
-      });
+      if (user) {
+        await addDoc(collection(db, 'audit_logs'), {
+          action: 'PAYMENT_COMPLETED',
+          user_id: user.uid,
+          session_id: selectedSession.id,
+          details: { amount: selectedSession.total_amount, method: selectedSession.payment_method },
+          created_at: new Date().toISOString(),
+        });
+      }
+      toast.success('Payment recorded & invoice generated!');
+    } catch (error: any) {
+      console.error(error);
+      toast.error(`Payment failed: ${error.message}`);
+    } finally {
+      setProcessingPayment(false);
+      fetchSessions();
     }
-    toast.success('Payment recorded & invoice generated!');
-    setSelectedSession(prev => prev ? { ...prev, state: 'PAID' } : null);
-    fetchSessions();
   };
 
   const updateItemQty = async (itemId: string, qty: number) => {
