@@ -113,7 +113,6 @@ const CashierDashboard = () => {
       collection(db, 'sessions'),
       where('mart_id', '==', employeeMartId),
       where('state', 'in', ['LOCKED', 'VERIFIED', 'PAID']),
-      where('payment_method', 'in', ['cash', 'card', 'upi_counter', null]),
       orderBy('created_at', 'desc')
     );
     const snapshot = await getDocs(q);
@@ -134,52 +133,59 @@ const CashierDashboard = () => {
   useEffect(() => {
     if (!employeeMartId) return;
     const loadAnalytics = async () => {
-      const now = new Date();
-      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
-      const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6).toISOString();
+      try {
+        const now = new Date();
+        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+        const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6).toISOString();
 
-      // Today's stats
-      const qToday = query(
-        collection(db, 'sessions'),
-        where('mart_id', '==', employeeMartId),
-        where('state', 'in', ['PAID', 'CLOSED']),
-        where('payment_method', 'in', ['cash', 'card', 'upi_counter']),
-        where('created_at', '>=', todayStart)
-      );
-      const todaySnap = await getDocs(qToday);
+        // Today's stats
+        const qToday = query(
+          collection(db, 'sessions'),
+          where('mart_id', '==', employeeMartId),
+          where('state', 'in', ['PAID', 'CLOSED']),
+          where('payment_method', 'in', ['cash', 'card', 'upi_counter']),
+          where('created_at', '>=', todayStart)
+        );
+        const todaySnap = await getDocs(qToday);
 
-      setTodaysBills(todaySnap.docs.length);
-      setTodaysRevenue(todaySnap.docs.reduce((s, r) => s + Number(r.data().total_amount || 0), 0));
+        setTodaysBills(todaySnap.docs.length);
+        setTodaysRevenue(todaySnap.docs.reduce((s, r) => s + Number(r.data().total_amount || 0), 0));
 
-      // Week data for chart
-      const qWeek = query(
-        collection(db, 'sessions'),
-        where('mart_id', '==', employeeMartId),
-        where('state', 'in', ['PAID', 'CLOSED']),
-        where('payment_method', 'in', ['cash', 'card', 'upi_counter']),
-        where('created_at', '>=', weekStart),
-        orderBy('created_at', 'asc')
-      );
-      const weekSnap = await getDocs(qWeek);
+        // Week data for chart
+        const qWeek = query(
+          collection(db, 'sessions'),
+          where('mart_id', '==', employeeMartId),
+          where('state', 'in', ['PAID', 'CLOSED']),
+          where('payment_method', 'in', ['cash', 'card', 'upi_counter']),
+          where('created_at', '>=', weekStart),
+          orderBy('created_at', 'asc')
+        );
+        const weekSnap = await getDocs(qWeek);
 
-      setWeekRevenue(weekSnap.docs.reduce((s, r) => s + Number(r.data().total_amount || 0), 0));
-      // Group by day
-      const grouped: Record<string, { revenue: number; bills: number }> = {};
-      for (let i = 6; i >= 0; i--) {
-        const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
-        const key = d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric' });
-        grouped[key] = { revenue: 0, bills: 0 };
-      }
-      weekSnap.docs.forEach(docSnap => {
-        const s = docSnap.data();
-        const d = new Date(s.created_at);
-        const key = d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric' });
-        if (grouped[key]) {
-          grouped[key].revenue += Number(s.total_amount || 0);
-          grouped[key].bills += 1;
+        setWeekRevenue(weekSnap.docs.reduce((s, r) => s + Number(r.data().total_amount || 0), 0));
+        // Group by day
+        const grouped: Record<string, { revenue: number; bills: number }> = {};
+        for (let i = 6; i >= 0; i--) {
+          const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+          const key = d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric' });
+          grouped[key] = { revenue: 0, bills: 0 };
         }
-      });
-      setDailyData(Object.entries(grouped).map(([date, v]) => ({ date, ...v })));
+        weekSnap.docs.forEach(docSnap => {
+          const s = docSnap.data();
+          const d = new Date(s.created_at);
+          const key = d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric' });
+          if (grouped[key]) {
+            grouped[key].revenue += Number(s.total_amount || 0);
+            grouped[key].bills += 1;
+          }
+        });
+        setDailyData(Object.entries(grouped).map(([date, v]) => ({ date, ...v })));
+      } catch (err: any) {
+        console.error("Analytics Load Error:", err);
+        if (err.message?.includes('index')) {
+          toast.error("Analytics index required. Please check Firestore console.");
+        }
+      }
     };
     loadAnalytics();
   }, [employeeMartId, sessions]);
@@ -211,7 +217,7 @@ const CashierDashboard = () => {
 
   /* ── QR Scan ── */
   const handleScanQR = async () => {
-    const input = scanInput.trim();
+    const input = scanInput.replace('receipt:', '').trim();
     if (!input) return;
 
     // Check if input is a valid document ID
@@ -253,7 +259,7 @@ const CashierDashboard = () => {
           { facingMode: 'environment' },
           { fps: 10, qrbox: { width: 250, height: 250 } },
           (decodedText: string) => {
-            const inputCode = decodedText.trim();
+            const inputCode = decodedText.replace('receipt:', '').trim();
             setQrScannerActive(false);
             (async () => {
               let sessionData: any = null;
