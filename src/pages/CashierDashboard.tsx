@@ -220,7 +220,7 @@ const CashierDashboard = () => {
 
   /* ── QR Scan ── */
   const handleScanQR = async () => {
-    const input = scanInput.replace('receipt:', '').trim();
+    const input = scanInput.replace(/^[a-z]+:/i, '').trim();
     if (!input) return;
 
     // Check if input is a valid document ID
@@ -262,7 +262,7 @@ const CashierDashboard = () => {
           { facingMode: 'environment' },
           { fps: 10, qrbox: { width: 250, height: 250 } },
           (decodedText: string) => {
-            const inputCode = decodedText.replace('receipt:', '').trim();
+            const inputCode = decodedText.replace(/^[a-z]+:/i, '').trim();
             setQrScannerActive(false);
             (async () => {
               let sessionData: any = null;
