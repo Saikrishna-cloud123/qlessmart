@@ -6,6 +6,7 @@ import {
 } from 'firebase/firestore';
 import { useAuth } from './useAuth';
 import { toast } from 'sonner';
+import emailjs from '@emailjs/browser';
 import type { StoreConfig } from '@/lib/storeConfig';
 import { DEFAULT_STORE_CONFIG } from '@/lib/storeConfig';
 import type { Session as ShoppingSession, CartItem as BaseCartItem } from '@/integrations/firebase/types';
@@ -437,6 +438,68 @@ export function useSession() {
         paid_at: now,
         updated_at: now
       });
+
+      // Fetch the latest invoice to get the correct invoice number
+      const newInvSnap = await getDocs(query(collection(db, 'invoices'), where('session_id', '==', session.id)));
+      if (!newInvSnap.empty) {
+         const invoiceData = newInvSnap.docs[0].data();
+         
+         // Send Email via EmailJS
+         const to_email = user.email;
+         const to_name = invoiceData.customer_name || 'Customer';
+         const serviceId = import.meta.env.VITE_EMAILJS_SERVICE_ID;
+         const templateId = import.meta.env.VITE_EMAILJS_BILL_TEMPLATE_ID;
+         const publicKey = import.meta.env.VITE_EMAILJS_PUBLIC_KEY;
+
+         if (serviceId && templateId && publicKey && to_email) {
+            const itemsHtml = items.map(item => `
+              <tr>
+                <td style="padding: 10px; border-bottom: 1px solid #eee;">${item.title}</td>
+                <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: center;">${item.quantity}</td>
+                <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: right;">₹${item.price}</td>
+                <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: right;">₹${(item.price || 0) * (item.quantity || 1)}</td>
+              </tr>
+            `).join('');
+
+            const html_content = `
+              <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 10px;">
+                <h2 style="color: #333; text-align: center;">Thank you for shopping at QLessMart!</h2>
+                <p>Hi ${to_name},</p>
+                <p>Here is your receipt for your recent purchase.</p>
+                
+                <table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
+                  <thead>
+                    <tr style="background-color: #f8f9fa;">
+                      <th style="padding: 10px; text-align: left; border-bottom: 2px solid #ddd;">Item</th>
+                      <th style="padding: 10px; text-align: center; border-bottom: 2px solid #ddd;">Qty</th>
+                      <th style="padding: 10px; text-align: right; border-bottom: 2px solid #ddd;">Price</th>
+                      <th style="padding: 10px; text-align: right; border-bottom: 2px solid #ddd;">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${itemsHtml}
+                  </tbody>
+                </table>
+                
+                <div style="margin-top: 20px; text-align: right;">
+                  <p><strong>Total Items:</strong> ${invoiceData.total_quantity}</p>
+                  <h3 style="color: #2563eb;">Grand Total: ₹${invoiceData.total_amount || 0}</h3>
+                </div>
+                
+                <hr style="border: 0; border-top: 1px solid #eee; margin: 30px 0;" />
+                <p style="text-align: center; color: #888; font-size: 12px;">Invoice #${invoiceData.invoice_number}</p>
+              </div>
+            `;
+
+            emailjs.send(serviceId, templateId, {
+              to_email,
+              to_name,
+              invoice_number: invoiceData.invoice_number,
+              html_content,
+              reply_to: "no-reply@qlessmart.com"
+            }, publicKey).catch(e => console.error("EmailJS manual payment bill failed:", e));
+         }
+      }
 
       toast.success('Payment confirmed! Your receipt is ready.');
     } catch (err: any) {

@@ -75,12 +75,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const totalQty = items.reduce((s, i) => s + (i.quantity || 1), 0);
 
     // Create Invoice
+    const invoice_number = `INV-${Date.now().toString(36).toUpperCase()}`;
     await db.collection('invoices').add({
       session_id,
       mart_id: sessionData.mart_id,
       branch_id: sessionData.branch_id || null,
       user_id: sessionData.user_id,
-      invoice_number: `INV-${Date.now().toString(36).toUpperCase()}`,
+      invoice_number,
       items,
       total_amount: sessionData.total_amount || 0,
       total_quantity: totalQty,
@@ -113,7 +114,60 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       body: JSON.stringify({ items })
     }).catch(e => console.error("Stock decrement trigger failed:", e));
 
-    return res.status(200).json({ success: true });
+    // --- Return bill data for frontend to send via EmailJS ---
+    let billData = null;
+    try {
+      const profileDoc = await db.collection('profiles').doc(sessionData.user_id).get();
+      if (profileDoc.exists) {
+        const to_email = profileDoc.data()?.email;
+        const to_name = profileDoc.data()?.display_name || 'Customer';
+
+        const itemsHtml = items.map(item => `
+          <tr>
+            <td style="padding: 10px; border-bottom: 1px solid #eee;">${item.title}</td>
+            <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: center;">${item.quantity}</td>
+            <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: right;">₹${item.price}</td>
+            <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: right;">₹${(item.price || 0) * (item.quantity || 1)}</td>
+          </tr>
+        `).join('');
+
+        const html_content = `
+          <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 10px;">
+            <h2 style="color: #333; text-align: center;">Thank you for shopping at QLessMart!</h2>
+            <p>Hi ${to_name},</p>
+            <p>Here is your receipt for your recent purchase.</p>
+            
+            <table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
+              <thead>
+                <tr style="background-color: #f8f9fa;">
+                  <th style="padding: 10px; text-align: left; border-bottom: 2px solid #ddd;">Item</th>
+                  <th style="padding: 10px; text-align: center; border-bottom: 2px solid #ddd;">Qty</th>
+                  <th style="padding: 10px; text-align: right; border-bottom: 2px solid #ddd;">Price</th>
+                  <th style="padding: 10px; text-align: right; border-bottom: 2px solid #ddd;">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${itemsHtml}
+              </tbody>
+            </table>
+            
+            <div style="margin-top: 20px; text-align: right;">
+              <p><strong>Total Items:</strong> ${totalQty}</p>
+              <h3 style="color: #2563eb;">Grand Total: ₹${sessionData.total_amount || 0}</h3>
+            </div>
+            
+            <hr style="border: 0; border-top: 1px solid #eee; margin: 30px 0;" />
+            <p style="text-align: center; color: #888; font-size: 12px;">Invoice #${invoice_number}</p>
+          </div>
+        `;
+
+        billData = { to_email, to_name, invoice_number, html_content };
+      }
+    } catch (e) {
+      console.error("Error preparing bill data:", e);
+    }
+
+    return res.status(200).json({ success: true, billData });
   } catch (err: unknown) {
     console.error('verify-razorpay-payment error:', err);
     const errorMessage = err instanceof Error ? err.message : 'Internal server error';

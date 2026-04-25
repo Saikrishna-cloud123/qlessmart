@@ -30,6 +30,11 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // ── OTPs ──────────────────────────────────────────────────────────────
+    match /otps/{userId} {
+      allow read, write: if isOwner(userId);
+    }
+
     // ── User Roles ────────────────────────────────────────────────────────
     match /user_roles/{docId} {
       allow read: if isSignedIn();

@@ -1,14 +1,16 @@
 import { initializeApp, cert, getApps, App } from 'firebase-admin/app';
 import { getFirestore, Firestore } from 'firebase-admin/firestore';
+import { getAuth, Auth } from 'firebase-admin/auth';
 
 let app: App;
 let db: Firestore;
+let auth: Auth;
 
 export function getAdminDb(): Firestore {
   if (!db) {
-    const projectId = process.env.VITE_FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID;
-    const clientEmail = process.env.FIREBASE_ADMIN_CLIENT_EMAIL;
-    const privateKey = process.env.FIREBASE_ADMIN_PRIVATE_KEY;
+    const projectId = (process.env.VITE_FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID || '').replace(/^["']|["']$/g, '');
+    const clientEmail = (process.env.FIREBASE_ADMIN_CLIENT_EMAIL || '').replace(/^["']|["']$/g, '');
+    let privateKey = (process.env.FIREBASE_ADMIN_PRIVATE_KEY || '').replace(/^["']|["']$/g, '');
 
     if (!projectId || !clientEmail || !privateKey) {
       const missing = [];
@@ -23,7 +25,6 @@ export function getAdminDb(): Firestore {
         credential: cert({
           projectId,
           clientEmail,
-          // Vercel stores multi-line env vars with literal \n — replace them
           privateKey: privateKey.replace(/\\n/g, '\n'),
         }),
       });
@@ -33,4 +34,12 @@ export function getAdminDb(): Firestore {
     db = getFirestore(app);
   }
   return db;
+}
+
+export function getAdminAuth(): Auth {
+  if (!auth) {
+    getAdminDb(); // Ensure app is initialized
+    auth = getAuth(app);
+  }
+  return auth;
 }

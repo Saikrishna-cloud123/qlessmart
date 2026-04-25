@@ -13,6 +13,7 @@ import {
   type User 
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import emailjs from '@emailjs/browser';
 import type { Profile, AppRole } from '@/integrations/firebase/types';
 
 
@@ -128,11 +129,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ idToken }),
               });
-              const syncData = await syncRes.json();
               if (syncRes.ok) {
-                console.log("[Auth] Role sync success:", syncData.roles);
+                const contentType = syncRes.headers.get("content-type");
+                if (contentType && contentType.includes("application/json")) {
+                  const syncData = await syncRes.json();
+                  console.log("[Auth] Role sync success:", syncData.roles);
+                } else {
+                  console.warn("[Auth] Role sync returned success but no JSON body");
+                }
               } else {
-                console.error("[Auth] Role sync failed:", syncData.error);
+                const errorText = await syncRes.text().catch(() => "Unknown error");
+                console.error("[Auth] Role sync failed:", errorText);
               }
             } catch (syncErr) {
               console.error("[Auth] Role sync API error:", syncErr);
@@ -167,8 +174,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       await firebaseUpdateProfile(userCredential.user, { displayName });
-      await sendEmailVerification(userCredential.user);
-      console.log("Verification email successfully sent to:", userCredential.user.email);
+      
+      // Call backend to generate OTP and save to Firestore securely
+      const idToken = await userCredential.user.getIdToken();
+      const res = await fetch('/api/generate-otp', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`
+        },
+        body: JSON.stringify({ email, displayName })
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        console.error("Failed to generate OTP via backend:", data.error);
+      } else {
+        // Send OTP email from browser via EmailJS (avoids non-browser 403)
+        const { otp, expiresAt } = await res.json();
+        const serviceId = import.meta.env.VITE_EMAILJS_SERVICE_ID;
+        const templateId = import.meta.env.VITE_EMAILJS_VERIFY_TEMPLATE_ID;
+        const publicKey = import.meta.env.VITE_EMAILJS_PUBLIC_KEY;
+
+        if (serviceId && templateId && publicKey) {
+          await emailjs.send(serviceId, templateId, {
+            to_email: email,
+            to_name: displayName,
+            passcode: otp,
+            time: new Date(expiresAt).toLocaleTimeString(),
+            reply_to: 'no-reply@qlessmart.com',
+          }, publicKey);
+          console.log('OTP email sent successfully to:', email);
+        }
+      }
+
       return { error: null };
     } catch (error: any) {
       console.error("Signup/Verification Error:", error);

@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
+import emailjs from '@emailjs/browser';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -287,6 +288,18 @@ const CustomerScan = () => {
             toast.error('Payment verification failed');
           } else {
             toast.success('Payment successful!');
+            
+            // Send bill via EmailJS on frontend
+            if (verifyData.billData) {
+              const serviceId = import.meta.env.VITE_EMAILJS_SERVICE_ID;
+              const templateId = import.meta.env.VITE_EMAILJS_BILL_TEMPLATE_ID;
+              const publicKey = import.meta.env.VITE_EMAILJS_PUBLIC_KEY;
+
+              if (serviceId && templateId && publicKey) {
+                emailjs.send(serviceId, templateId, verifyData.billData, publicKey)
+                  .catch(e => console.error("EmailJS razorpay bill failed:", e));
+              }
+            }
           }
         },
         prefill: { email: user?.email },
